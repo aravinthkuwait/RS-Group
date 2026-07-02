@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import db from './db.js';
+import { all, get, run } from './db.js';
 
 export const JWT_SECRET = process.env.JWT_SECRET || 'rs-group-dev-secret-change-in-production';
 
@@ -60,12 +60,10 @@ export const DEFAULT_ROLE_PERMISSIONS = {
   ],
 };
 
-const rolePermsStmt = () => db.prepare('SELECT permission FROM permissions WHERE role = ?');
-
-export function permissionsForUser(user) {
+export async function permissionsForUser(user) {
   const rolePerms = user.role === 'super_admin'
     ? [...ALL_PERMISSIONS]
-    : rolePermsStmt().all(user.role).map(r => r.permission);
+    : (await all('SELECT permission FROM permissions WHERE role = ?', user.role)).map(r => r.permission);
   const extra = JSON.parse(user.extra_permissions || '[]');
   const denied = JSON.parse(user.denied_permissions || '[]');
   const set = new Set([...rolePerms, ...extra]);
@@ -82,26 +80,30 @@ export function signToken(user, sessionId) {
   return jwt.sign({ uid: user.id, role: user.role, sid: sessionId }, JWT_SECRET, { expiresIn: '12h' });
 }
 
-export function authenticate(req, res, next) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : (req.query.token || null);
-  if (!token) return res.status(401).json({ error: 'Authentication required' });
-  let payload;
+export async function authenticate(req, res, next) {
   try {
-    payload = jwt.verify(token, JWT_SECRET);
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : (req.query.token || null);
+    if (!token) return res.status(401).json({ error: 'Authentication required' });
+    let payload;
+    try {
+      payload = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    const user = await get('SELECT * FROM users WHERE id = ? AND active = 1', payload.uid);
+    if (!user) return res.status(401).json({ error: 'Account not found or disabled' });
+    const session = await get('SELECT * FROM sessions WHERE id = ?', payload.sid);
+    if (!session || session.revoked) return res.status(401).json({ error: 'Session ended. Please login again.' });
+    run('UPDATE sessions SET last_seen = now() WHERE id = ?', payload.sid).catch(() => {});
+    user.perms = await permissionsForUser(user);
+    delete user.password_hash;
+    req.user = user;
+    req.sessionId = payload.sid;
+    next();
+  } catch (e) {
+    next(e);
   }
-  const user = db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(payload.uid);
-  if (!user) return res.status(401).json({ error: 'Account not found or disabled' });
-  const session = db.prepare('SELECT * FROM sessions WHERE id = ?').get(payload.sid);
-  if (!session || session.revoked) return res.status(401).json({ error: 'Session ended. Please login again.' });
-  db.prepare("UPDATE sessions SET last_seen = datetime('now') WHERE id = ?").run(payload.sid);
-  user.perms = permissionsForUser(user);
-  delete user.password_hash;
-  req.user = user;
-  req.sessionId = payload.sid;
-  next();
 }
 
 export function requirePermission(...permissions) {
@@ -112,7 +114,6 @@ export function requirePermission(...permissions) {
 }
 
 // Branch scoping: super_admin & auditor see all branches; everyone else is locked to their branch.
-// Returns the branch id to filter by, or null for "all branches".
 export function scopeBranch(req) {
   const requested = req.query.branch_id ? Number(req.query.branch_id) : null;
   if (req.user.role === 'super_admin' || req.user.role === 'auditor') return requested; // null = all

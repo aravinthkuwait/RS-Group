@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import XLSX from 'xlsx';
-import db from '../db.js';
+import { all, get } from '../db.js';
 import { requirePermission, scopeBranch } from '../auth.js';
 import { round2, today } from '../util.js';
 import { reportPdf } from '../pdf.js';
 
 const router = Router();
+const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 const NOT_VOID = "s.status NOT IN ('cancelled','held')";
 
@@ -16,76 +17,76 @@ function range(req) {
 }
 
 // ---------------- Owner / branch dashboard ----------------
-router.get('/dashboard', requirePermission('dashboard.view'), (req, res) => {
+router.get('/dashboard', requirePermission('dashboard.view'), wrap(async (req, res) => {
   const branchId = scopeBranch(req);
   const bw = branchId ? 'AND s.branch_id = ?' : '';
   const bp = branchId ? [branchId] : [];
 
-  const salesAgg = (cond, params = []) => db.prepare(
-    `SELECT COUNT(*) bills, COALESCE(SUM(s.total),0) total,
-       COALESCE(SUM(s.paid_cash),0) cash, COALESCE(SUM(s.paid_upi),0) upi,
-       COALESCE(SUM(s.paid_card),0) card, COALESCE(SUM(s.credit_amount),0) credit,
-       COALESCE(SUM((SELECT SUM((si.price - si.purchase_price) * (si.qty - si.returned_qty)) FROM sale_items si WHERE si.sale_id = s.id)),0) profit
-     FROM sales s WHERE ${NOT_VOID} AND ${cond} ${bw}`).get(...params, ...bp);
+  const salesAgg = (cond, params = []) => get(
+    `SELECT COUNT(*) AS bills, COALESCE(SUM(s.total),0) AS total,
+       COALESCE(SUM(s.paid_cash),0) AS cash, COALESCE(SUM(s.paid_upi),0) AS upi,
+       COALESCE(SUM(s.paid_card),0) AS card, COALESCE(SUM(s.credit_amount),0) AS credit,
+       COALESCE(SUM((SELECT SUM((si.price - si.purchase_price) * (si.qty - si.returned_qty)) FROM sale_items si WHERE si.sale_id = s.id)),0) AS profit
+     FROM sales s WHERE ${NOT_VOID} AND ${cond} ${bw}`, ...params, ...bp);
 
-  const todaySales = salesAgg(`date(s.created_at) = date('now')`);
-  const monthSales = salesAgg(`strftime('%Y-%m', s.created_at) = strftime('%Y-%m', 'now')`);
+  const todaySales = await salesAgg('s.created_at::date = CURRENT_DATE');
+  const monthSales = await salesAgg(`to_char(s.created_at, 'YYYY-MM') = to_char(now(), 'YYYY-MM')`);
 
   // 14-day sales trend
-  const trend = db.prepare(`SELECT date(s.created_at) AS date, COALESCE(SUM(s.total),0) AS total, COUNT(*) AS bills
-    FROM sales s WHERE ${NOT_VOID} AND s.created_at >= datetime('now','-14 days') ${bw}
-    GROUP BY date(s.created_at) ORDER BY date`).all(...bp);
+  const trend = await all(`SELECT s.created_at::date AS date, COALESCE(SUM(s.total),0) AS total, COUNT(*) AS bills
+    FROM sales s WHERE ${NOT_VOID} AND s.created_at >= now() - interval '14 days' ${bw}
+    GROUP BY s.created_at::date ORDER BY date`, ...bp);
 
   // Branch-wise (this month) — always returned; UI shows it for owner
-  const branchWise = db.prepare(`SELECT b.id, b.name, b.code, COALESCE(SUM(s.total),0) AS total, COUNT(s.id) AS bills
-    FROM branches b LEFT JOIN sales s ON s.branch_id = b.id AND ${NOT_VOID} AND strftime('%Y-%m', s.created_at) = strftime('%Y-%m','now')
-    WHERE b.active = 1 GROUP BY b.id ORDER BY total DESC`).all();
+  const branchWise = await all(`SELECT b.id, b.name, b.code, COALESCE(SUM(s.total),0) AS total, COUNT(s.id) AS bills
+    FROM branches b LEFT JOIN sales s ON s.branch_id = b.id AND ${NOT_VOID} AND to_char(s.created_at, 'YYYY-MM') = to_char(now(), 'YYYY-MM')
+    WHERE b.active = 1 GROUP BY b.id ORDER BY total DESC`);
 
-  const bestSellers = db.prepare(`SELECT m.name, SUM(si.qty) AS qty, ROUND(SUM(si.total),2) AS amount
+  const bestSellers = await all(`SELECT m.name, SUM(si.qty)::int AS qty, ROUND(SUM(si.total)::numeric, 2) AS amount
     FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN medicines m ON m.id = si.medicine_id
-    WHERE ${NOT_VOID} AND s.created_at >= datetime('now','-30 days') ${bw}
-    GROUP BY si.medicine_id ORDER BY qty DESC LIMIT 8`).all(...bp);
+    WHERE ${NOT_VOID} AND s.created_at >= now() - interval '30 days' ${bw}
+    GROUP BY m.name ORDER BY qty DESC LIMIT 8`, ...bp);
 
-  const staffPerf = db.prepare(`SELECT u.name, COUNT(s.id) AS bills, ROUND(COALESCE(SUM(s.total),0),2) AS total
+  const staffPerf = await all(`SELECT u.name, COUNT(s.id) AS bills, ROUND(COALESCE(SUM(s.total),0)::numeric, 2) AS total
     FROM sales s JOIN users u ON u.id = s.staff_id
-    WHERE ${NOT_VOID} AND strftime('%Y-%m', s.created_at) = strftime('%Y-%m','now') ${bw}
-    GROUP BY s.staff_id ORDER BY total DESC LIMIT 8`).all(...bp);
+    WHERE ${NOT_VOID} AND to_char(s.created_at, 'YYYY-MM') = to_char(now(), 'YYYY-MM') ${bw}
+    GROUP BY u.name ORDER BY total DESC LIMIT 8`, ...bp);
 
   const sbw = branchId ? 'AND b.branch_id = ?' : '';
-  const stockValue = db.prepare(`SELECT ROUND(COALESCE(SUM(b.qty * b.purchase_price),0),2) cost,
-      ROUND(COALESCE(SUM(b.qty * b.selling_price),0),2) retail
-    FROM stock_batches b WHERE b.qty > 0 ${sbw}`).get(...bp);
-  const stockByBranch = db.prepare(`SELECT br.name, br.code, ROUND(COALESCE(SUM(b.qty * b.purchase_price),0),2) AS value
+  const stockValue = await get(`SELECT ROUND(COALESCE(SUM(b.qty * b.purchase_price),0)::numeric, 2) AS cost,
+      ROUND(COALESCE(SUM(b.qty * b.selling_price),0)::numeric, 2) AS retail
+    FROM stock_batches b WHERE b.qty > 0 ${sbw}`, ...bp);
+  const stockByBranch = await all(`SELECT br.name, br.code, ROUND(COALESCE(SUM(b.qty * b.purchase_price),0)::numeric, 2) AS value
     FROM branches br LEFT JOIN stock_batches b ON b.branch_id = br.id AND b.qty > 0
-    WHERE br.active = 1 GROUP BY br.id`).all();
+    WHERE br.active = 1 GROUP BY br.id`);
 
-  const expiryRisk = db.prepare(`SELECT COUNT(*) batches, ROUND(COALESCE(SUM(b.qty * b.purchase_price),0),2) value
-    FROM stock_batches b WHERE b.qty > 0 AND b.expiry_date <= date('now','+90 days') ${sbw}`).get(...bp);
-  const expiredValue = db.prepare(`SELECT COUNT(*) batches, ROUND(COALESCE(SUM(b.qty * b.purchase_price),0),2) value
-    FROM stock_batches b WHERE b.qty > 0 AND b.expiry_date < date('now') ${sbw}`).get(...bp);
+  const expiryRisk = await get(`SELECT COUNT(*) AS batches, ROUND(COALESCE(SUM(b.qty * b.purchase_price),0)::numeric, 2) AS value
+    FROM stock_batches b WHERE b.qty > 0 AND b.expiry_date <= CURRENT_DATE + 90 ${sbw}`, ...bp);
+  const expiredValue = await get(`SELECT COUNT(*) AS batches, ROUND(COALESCE(SUM(b.qty * b.purchase_price),0)::numeric, 2) AS value
+    FROM stock_batches b WHERE b.qty > 0 AND b.expiry_date < CURRENT_DATE ${sbw}`, ...bp);
 
-  const lowStockCount = db.prepare(`SELECT COUNT(*) c FROM (
+  const lowStockCount = (await get(`SELECT COUNT(*) AS c FROM (
     SELECT m.id FROM medicines m LEFT JOIN stock_batches b ON b.medicine_id = m.id ${branchId ? 'AND b.branch_id = ?' : ''}
-    WHERE m.active = 1 GROUP BY m.id HAVING COALESCE(SUM(b.qty),0) <= m.min_stock)`).get(...bp).c;
+    WHERE m.active = 1 GROUP BY m.id HAVING COALESCE(SUM(b.qty),0) <= MIN(m.min_stock)) t`, ...bp)).c;
 
   // Dues
-  const supplierDues = db.prepare(`SELECT ROUND(COALESCE(SUM(sp.opening_balance),0) +
+  const supplierDues = (await get(`SELECT ROUND((COALESCE(SUM(sp.opening_balance),0) +
       COALESCE((SELECT SUM(total) FROM purchases WHERE status != 'returned'),0) -
       COALESCE((SELECT SUM(amount) FROM purchase_returns),0) -
-      COALESCE((SELECT SUM(amount) FROM supplier_payments),0), 2) AS due
-    FROM suppliers sp WHERE sp.active = 1`).get().due;
-  const customerDues = db.prepare(`SELECT ROUND(
+      COALESCE((SELECT SUM(amount) FROM supplier_payments),0))::numeric, 2) AS due
+    FROM suppliers sp WHERE sp.active = 1`)).due;
+  const customerDues = (await get(`SELECT ROUND((
       COALESCE((SELECT SUM(credit_amount) FROM sales WHERE status != 'cancelled' ${branchId ? 'AND branch_id = ' + Number(branchId) : ''}),0) -
-      COALESCE((SELECT SUM(CASE WHEN type='receipt' THEN amount ELSE -amount END) FROM payments WHERE sale_id IS NULL ${branchId ? 'AND branch_id = ' + Number(branchId) : ''}),0), 2) AS due`).get().due;
+      COALESCE((SELECT SUM(CASE WHEN type='receipt' THEN amount ELSE -amount END) FROM payments WHERE sale_id IS NULL ${branchId ? 'AND branch_id = ' + Number(branchId) : ''}),0))::numeric, 2) AS due`)).due;
 
-  const monthExpenses = db.prepare(`SELECT ROUND(COALESCE(SUM(amount),0),2) t FROM expenses
-    WHERE strftime('%Y-%m', date) = strftime('%Y-%m','now') ${branchId ? 'AND branch_id = ?' : ''}`).get(...bp).t;
+  const monthExpenses = (await get(`SELECT ROUND(COALESCE(SUM(amount),0)::numeric, 2) AS t FROM expenses
+    WHERE to_char(date, 'YYYY-MM') = to_char(now(), 'YYYY-MM') ${branchId ? 'AND branch_id = ?' : ''}`, ...bp)).t;
 
   // Monthly sales for last 6 months (sales graph)
-  const monthly = db.prepare(`SELECT strftime('%Y-%m', s.created_at) AS month, ROUND(SUM(s.total),2) AS total,
-      ROUND(COALESCE(SUM((SELECT SUM((si.price - si.purchase_price) * (si.qty - si.returned_qty)) FROM sale_items si WHERE si.sale_id = s.id)),0),2) AS profit
-    FROM sales s WHERE ${NOT_VOID} AND s.created_at >= datetime('now','-6 months') ${bw}
-    GROUP BY month ORDER BY month`).all(...bp);
+  const monthly = await all(`SELECT to_char(s.created_at, 'YYYY-MM') AS month, ROUND(SUM(s.total)::numeric, 2) AS total,
+      ROUND(COALESCE(SUM((SELECT SUM((si.price - si.purchase_price) * (si.qty - si.returned_qty)) FROM sale_items si WHERE si.sale_id = s.id)),0)::numeric, 2) AS profit
+    FROM sales s WHERE ${NOT_VOID} AND s.created_at >= now() - interval '6 months' ${bw}
+    GROUP BY month ORDER BY month`, ...bp);
 
   res.json({
     today: todaySales, month: monthSales, trend, branch_wise: branchWise,
@@ -97,97 +98,97 @@ router.get('/dashboard', requirePermission('dashboard.view'), (req, res) => {
     month_profit_net: round2((monthSales.profit || 0) - monthExpenses),
     monthly,
   });
-});
+}));
 
 // ---------------- Report data builders ----------------
-function salesReport(req) {
+async function salesReport(req) {
   const branchId = scopeBranch(req); const { from, to } = range(req);
   const bw = branchId ? 'AND s.branch_id = ?' : ''; const bp = branchId ? [branchId] : [];
-  const rows = db.prepare(`SELECT s.invoice_no, date(s.created_at) AS date, b.name AS branch, c.name AS customer,
+  const rows = await all(`SELECT s.invoice_no, s.created_at::date AS date, b.name AS branch, c.name AS customer,
       u.name AS staff, s.subtotal, s.discount, s.gst_amount AS gst, s.total,
       s.paid_cash AS cash, s.paid_upi AS upi, s.paid_card AS card, s.credit_amount AS credit, s.status
     FROM sales s JOIN branches b ON b.id = s.branch_id LEFT JOIN customers c ON c.id = s.customer_id
     LEFT JOIN users u ON u.id = s.staff_id
-    WHERE s.status != 'held' AND date(s.created_at) BETWEEN ? AND ? ${bw} ORDER BY s.created_at`).all(from, to, ...bp);
+    WHERE s.status != 'held' AND s.created_at::date BETWEEN ? AND ? ${bw} ORDER BY s.created_at`, from, to, ...bp);
   return { rows, from, to };
 }
 
-function stockReport(req) {
+async function stockReport(req) {
   const branchId = scopeBranch(req);
-  const rows = db.prepare(`SELECT m.name AS medicine, m.category, b.batch_no, br.code AS branch, b.expiry_date,
-      b.qty, b.mrp, b.purchase_price, b.selling_price, ROUND(b.qty * b.purchase_price, 2) AS stock_value, m.rack_location AS rack
+  const rows = await all(`SELECT m.name AS medicine, m.category, b.batch_no, br.code AS branch, b.expiry_date,
+      b.qty, b.mrp, b.purchase_price, b.selling_price, ROUND((b.qty * b.purchase_price)::numeric, 2) AS stock_value, m.rack_location AS rack
     FROM stock_batches b JOIN medicines m ON m.id = b.medicine_id JOIN branches br ON br.id = b.branch_id
-    WHERE b.qty > 0 ${branchId ? 'AND b.branch_id = ?' : ''} ORDER BY m.name`).all(...(branchId ? [branchId] : []));
+    WHERE b.qty > 0 ${branchId ? 'AND b.branch_id = ?' : ''} ORDER BY m.name`, ...(branchId ? [branchId] : []));
   return { rows };
 }
 
-function gstReport(req) {
+async function gstReport(req) {
   const branchId = scopeBranch(req); const { from, to } = range(req);
   const bw = branchId ? 'AND s.branch_id = ?' : ''; const bp = branchId ? [branchId] : [];
-  const rows = db.prepare(`SELECT si.gst_rate, COUNT(DISTINCT s.id) AS bills, ROUND(SUM(si.total),2) AS gross,
-      ROUND(SUM(si.gst_amount),2) AS gst, ROUND(SUM(si.total) - SUM(si.gst_amount),2) AS taxable
+  const rows = await all(`SELECT si.gst_rate, COUNT(DISTINCT s.id) AS bills, ROUND(SUM(si.total)::numeric, 2) AS gross,
+      ROUND(SUM(si.gst_amount)::numeric, 2) AS gst, ROUND((SUM(si.total) - SUM(si.gst_amount))::numeric, 2) AS taxable
     FROM sale_items si JOIN sales s ON s.id = si.sale_id
-    WHERE ${NOT_VOID} AND date(s.created_at) BETWEEN ? AND ? ${bw}
-    GROUP BY si.gst_rate ORDER BY si.gst_rate`).all(from, to, ...bp);
+    WHERE ${NOT_VOID} AND s.created_at::date BETWEEN ? AND ? ${bw}
+    GROUP BY si.gst_rate ORDER BY si.gst_rate`, from, to, ...bp);
   return { rows, from, to };
 }
 
-function purchaseReport(req) {
+async function purchaseReport(req) {
   const branchId = scopeBranch(req); const { from, to } = range(req);
-  const rows = db.prepare(`SELECT p.invoice_no, p.invoice_date AS date, b.code AS branch, sp.name AS supplier,
-      p.subtotal, p.gst_amount AS gst, p.total, p.paid_amount AS paid, ROUND(p.total - p.paid_amount,2) AS pending, p.status
+  const rows = await all(`SELECT p.invoice_no, p.invoice_date AS date, b.code AS branch, sp.name AS supplier,
+      p.subtotal, p.gst_amount AS gst, p.total, p.paid_amount AS paid, ROUND((p.total - p.paid_amount)::numeric, 2) AS pending, p.status
     FROM purchases p JOIN branches b ON b.id = p.branch_id JOIN suppliers sp ON sp.id = p.supplier_id
-    WHERE p.invoice_date BETWEEN ? AND ? ${branchId ? 'AND p.branch_id = ?' : ''} ORDER BY p.invoice_date`)
-    .all(from, to, ...(branchId ? [branchId] : []));
+    WHERE p.invoice_date BETWEEN ? AND ? ${branchId ? 'AND p.branch_id = ?' : ''} ORDER BY p.invoice_date`,
+    from, to, ...(branchId ? [branchId] : []));
   return { rows, from, to };
 }
 
-function expiryReport(req) {
+async function expiryReport(req) {
   const branchId = scopeBranch(req);
   const days = Number(req.query.days || 90);
-  const rows = db.prepare(`SELECT m.name AS medicine, b.batch_no, br.code AS branch, b.expiry_date,
-      CAST(julianday(b.expiry_date) - julianday('now') AS INTEGER) AS days_left, b.qty,
-      ROUND(b.qty * b.purchase_price,2) AS value
+  const rows = await all(`SELECT m.name AS medicine, b.batch_no, br.code AS branch, b.expiry_date,
+      (b.expiry_date - CURRENT_DATE) AS days_left, b.qty,
+      ROUND((b.qty * b.purchase_price)::numeric, 2) AS value
     FROM stock_batches b JOIN medicines m ON m.id = b.medicine_id JOIN branches br ON br.id = b.branch_id
-    WHERE b.qty > 0 AND b.expiry_date <= date('now', '+' || ? || ' days') ${branchId ? 'AND b.branch_id = ?' : ''}
-    ORDER BY b.expiry_date`).all(days, ...(branchId ? [branchId] : []));
+    WHERE b.qty > 0 AND b.expiry_date <= CURRENT_DATE + (?::int) ${branchId ? 'AND b.branch_id = ?' : ''}
+    ORDER BY b.expiry_date`, days, ...(branchId ? [branchId] : []));
   return { rows, days };
 }
 
-function productSalesReport(req) {
+async function productSalesReport(req) {
   const branchId = scopeBranch(req); const { from, to } = range(req);
   const bw = branchId ? 'AND s.branch_id = ?' : ''; const bp = branchId ? [branchId] : [];
-  const rows = db.prepare(`SELECT m.name AS medicine, m.category, SUM(si.qty) AS qty, ROUND(SUM(si.total),2) AS amount,
-      ROUND(SUM((si.price - si.purchase_price) * (si.qty - si.returned_qty)),2) AS profit
+  const rows = await all(`SELECT m.name AS medicine, m.category, SUM(si.qty)::int AS qty, ROUND(SUM(si.total)::numeric, 2) AS amount,
+      ROUND(SUM((si.price - si.purchase_price) * (si.qty - si.returned_qty))::numeric, 2) AS profit
     FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN medicines m ON m.id = si.medicine_id
-    WHERE ${NOT_VOID} AND date(s.created_at) BETWEEN ? AND ? ${bw}
-    GROUP BY si.medicine_id ORDER BY amount DESC`).all(from, to, ...bp);
+    WHERE ${NOT_VOID} AND s.created_at::date BETWEEN ? AND ? ${bw}
+    GROUP BY m.name, m.category ORDER BY amount DESC`, from, to, ...bp);
   return { rows, from, to };
 }
 
-function staffSalesReport(req) {
+async function staffSalesReport(req) {
   const branchId = scopeBranch(req); const { from, to } = range(req);
   const bw = branchId ? 'AND s.branch_id = ?' : ''; const bp = branchId ? [branchId] : [];
-  const rows = db.prepare(`SELECT u.name AS staff, b.code AS branch, COUNT(s.id) AS bills, ROUND(SUM(s.total),2) AS total,
-      ROUND(AVG(s.total),2) AS avg_bill
+  const rows = await all(`SELECT u.name AS staff, b.code AS branch, COUNT(s.id) AS bills, ROUND(SUM(s.total)::numeric, 2) AS total,
+      ROUND(AVG(s.total)::numeric, 2) AS avg_bill
     FROM sales s JOIN users u ON u.id = s.staff_id JOIN branches b ON b.id = s.branch_id
-    WHERE ${NOT_VOID} AND date(s.created_at) BETWEEN ? AND ? ${bw}
-    GROUP BY s.staff_id ORDER BY total DESC`).all(from, to, ...bp);
+    WHERE ${NOT_VOID} AND s.created_at::date BETWEEN ? AND ? ${bw}
+    GROUP BY u.name, b.code ORDER BY total DESC`, from, to, ...bp);
   return { rows, from, to };
 }
 
-function profitReport(req) {
+async function profitReport(req) {
   const branchId = scopeBranch(req); const { from, to } = range(req);
   const bw = branchId ? 'AND s.branch_id = ?' : ''; const bp = branchId ? [branchId] : [];
-  const sales = db.prepare(`SELECT ROUND(COALESCE(SUM(s.total),0),2) revenue,
+  const sales = await get(`SELECT ROUND(COALESCE(SUM(s.total),0)::numeric, 2) AS revenue,
       ROUND(COALESCE(SUM((SELECT SUM(si.purchase_price
-        * (si.qty - si.returned_qty)) FROM sale_items si WHERE si.sale_id = s.id)),0),2) cogs,
-      ROUND(COALESCE(SUM(s.discount),0),2) discounts, ROUND(COALESCE(SUM(s.gst_amount),0),2) gst
-    FROM sales s WHERE ${NOT_VOID} AND date(s.created_at) BETWEEN ? AND ? ${bw}`).get(from, to, ...bp);
-  const refunds = db.prepare(`SELECT ROUND(COALESCE(SUM(refund_amount),0),2) t FROM returns r
-    WHERE date(r.created_at) BETWEEN ? AND ? ${branchId ? 'AND r.branch_id = ?' : ''}`).get(from, to, ...bp).t;
-  const expenses = db.prepare(`SELECT category, ROUND(SUM(amount),2) AS total FROM expenses
-    WHERE date BETWEEN ? AND ? ${branchId ? 'AND branch_id = ?' : ''} GROUP BY category`).all(from, to, ...bp);
+        * (si.qty - si.returned_qty)) FROM sale_items si WHERE si.sale_id = s.id)),0)::numeric, 2) AS cogs,
+      ROUND(COALESCE(SUM(s.discount),0)::numeric, 2) AS discounts, ROUND(COALESCE(SUM(s.gst_amount),0)::numeric, 2) AS gst
+    FROM sales s WHERE ${NOT_VOID} AND s.created_at::date BETWEEN ? AND ? ${bw}`, from, to, ...bp);
+  const refunds = (await get(`SELECT ROUND(COALESCE(SUM(refund_amount),0)::numeric, 2) AS t FROM returns r
+    WHERE r.created_at::date BETWEEN ? AND ? ${branchId ? 'AND r.branch_id = ?' : ''}`, from, to, ...bp)).t;
+  const expenses = await all(`SELECT category, ROUND(SUM(amount)::numeric, 2) AS total FROM expenses
+    WHERE date BETWEEN ? AND ? ${branchId ? 'AND branch_id = ?' : ''} GROUP BY category`, from, to, ...bp);
   const totalExpenses = round2(expenses.reduce((a, e) => a + e.total, 0));
   const grossProfit = round2(sales.revenue - refunds - sales.cogs);
   return {
@@ -266,25 +267,25 @@ const REPORTS = {
   },
 };
 
-router.get('/list', requirePermission('reports.view'), (req, res) => {
+router.get('/list', requirePermission('reports.view'), wrap(async (req, res) => {
   res.json({ reports: Object.entries(REPORTS).map(([key, r]) => ({ key, title: r.title })).concat([{ key: 'profit', title: 'Profit & Loss Report' }]) });
-});
+}));
 
-router.get('/profit', requirePermission('reports.view'), (req, res) => {
-  res.json(profitReport(req));
-});
+router.get('/profit', requirePermission('reports.view'), wrap(async (req, res) => {
+  res.json(await profitReport(req));
+}));
 
-router.get('/:key(sales|stock|expiry|purchases|gst|products|staff)', requirePermission('reports.view'), (req, res) => {
+router.get('/:key(sales|stock|expiry|purchases|gst|products|staff)', requirePermission('reports.view'), wrap(async (req, res) => {
   const r = REPORTS[req.params.key];
-  const data = r.build(req);
+  const data = await r.build(req);
   res.json({ title: r.title, columns: r.columns, rows: data.rows, from: data.from, to: data.to, summary: r.summary(data) });
-});
+}));
 
-router.get('/:key(sales|stock|expiry|purchases|gst|products|staff)/export', requirePermission('reports.export'), (req, res) => {
+router.get('/:key(sales|stock|expiry|purchases|gst|products|staff)/export', requirePermission('reports.export'), wrap(async (req, res) => {
   const r = REPORTS[req.params.key];
-  const data = r.build(req);
+  const data = await r.build(req);
   const branchId = scopeBranch(req);
-  const branchName = branchId ? db.prepare('SELECT name FROM branches WHERE id = ?').get(branchId)?.name : 'All Branches';
+  const branchName = branchId ? (await get('SELECT name FROM branches WHERE id = ?', branchId))?.name : 'All Branches';
   const period = data.from ? `Period: ${data.from} to ${data.to}` : `As on ${today()}`;
 
   if (req.query.format === 'xlsx') {
@@ -300,7 +301,7 @@ router.get('/:key(sales|stock|expiry|purchases|gst|products|staff)/export', requ
     res.setHeader('Content-Disposition', `attachment; filename="${req.params.key}-report.xlsx"`);
     return res.send(buf);
   }
-  reportPdf(res, { title: r.title, branchName, period, columns: r.columns, rows: data.rows, summary: r.summary(data) });
-});
+  await reportPdf(res, { title: r.title, branchName, period, columns: r.columns, rows: data.rows, summary: r.summary(data) });
+}));
 
 export default router;

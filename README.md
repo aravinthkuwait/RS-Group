@@ -17,20 +17,29 @@ all branded with the RS Group identity (white / blue / green / orange).
 
 | Directory | What it is |
 |---|---|
-| `server/` | Node.js (Express) REST API + SQLite database + PDF/Excel generation. Also serves the built web app — one deployable unit. |
+| `server/` | Node.js (Express) REST API backed by **Supabase (PostgreSQL)** + PDF/Excel generation. Also serves the built web app — one deployable unit for **Railway**. |
 | `web/` | React (Vite) web app — Owner dashboard, Admin panel, Branch manager portal, Billing POS. Fully mobile-responsive. |
 | `mobile/` | Native staff app (Expo / React Native) — billing, barcode scan, stock, expiry, deliveries, tasks, attendance, notifications. |
 | `assets/` | RS Group brand logo (embedded in the UI and on PDF invoices/reports). |
 
-## Quick start
+**Hosting model:** Supabase hosts the database (schema `rsgroup`, locked down with RLS);
+Railway hosts the app — the Express server serves both the frontend and the `/api/*` backend
+and talks to Supabase over `DATABASE_URL`.
+
+## Quick start (local development)
 
 ```bash
+# Point at any Postgres — your Supabase connection string, or a local Postgres
+export DATABASE_URL="postgres://postgres:postgres@localhost:5432/rsgroup"
+
 npm run setup        # installs server + web dependencies
 npm start            # builds the web app and starts the server on :4000
 ```
 
-Open **http://localhost:4000** — the database auto-seeds with sample data on first run:
-**3 branches, 11 users, 50 medicines, 10 suppliers, 150 stock batches, 100 sales bills**, customers, expenses, purchases, tasks and attendance.
+Open **http://localhost:4000** — the schema is created automatically and the database
+auto-seeds with sample data on first run:
+**3 branches, 11 users, 50 medicines, 10 suppliers, 150 stock batches, 100 sales bills**,
+customers, expenses, purchases, tasks and attendance. (Set `SEED_ON_EMPTY=0` to skip sample data.)
 
 ### Demo logins (password for all: `rsgroup123`)
 
@@ -94,20 +103,22 @@ updates, task list, attendance check-in/out, notifications.
 ## Architecture
 
 ```
-┌───────────────┐     ┌──────────────────────────────┐
-│  Web app       │     │  server/ (Express, :4000)    │
-│  React + Vite  │────▶│  /api/auth  /api/sales       │     ┌──────────────┐
-│  (built into   │     │  /api/inventory /api/reports │────▶│ SQLite (WAL) │
-│  server/dist)  │     │  /api/purchases /api/staff…  │     │ server/data/ │
-├───────────────┤     │  JWT auth · RBAC · audit     │     └──────────────┘
-│  Staff app     │────▶│  SSE realtime · PDFKit · XLSX│
-│  Expo (mobile/)│     └──────────────────────────────┘
+┌───────────────┐     ┌───────────────────────────────┐     ┌────────────────────┐
+│  Web app       │     │  RAILWAY                      │     │  SUPABASE          │
+│  React + Vite  │────▶│  server/ (Express)            │     │  PostgreSQL        │
+│  (served from  │     │  /api/auth  /api/sales        │────▶│  schema: rsgroup   │
+│  the server)   │     │  /api/inventory /api/reports  │ SSL │  RLS: deny-by-     │
+├───────────────┤     │  JWT auth · RBAC · audit      │     │  default (REST API │
+│  Staff app     │────▶│  SSE realtime · PDFKit · XLSX │     │  blocked)          │
+│  Expo (mobile/)│     └───────────────────────────────┘     └────────────────────┘
 └───────────────┘
 ```
 
 - **API-first**: every screen works through the same documented REST API under `/api/*`.
-- **SQLite in WAL mode** keeps the system zero-dependency and fast; swap `server/src/db.js`
-  for Postgres/MySQL when scaling beyond a single node.
+- **Supabase (PostgreSQL)** hosts all data in a dedicated `rsgroup` schema — it never
+  touches other apps sharing the project. Every table has row-level security enabled
+  with no policies, so Supabase's auto-generated REST API cannot read or write the data;
+  only the app server (connecting as the database owner) can.
 - **Branch scoping** is enforced server-side: non-owner users are locked to their branch
   on every read and write; owner/auditor can view all branches or filter one.
 
@@ -127,20 +138,41 @@ cd server && node src/seed.js --force
 cd mobile && npm install && npm start
 ```
 
-## Deployment
+## Deployment — Supabase + Railway
 
-The server is a single Node process serving both API and web app:
+### 1. Supabase (database) — already provisioned
 
-```bash
-npm run setup && npm run build
-PORT=4000 JWT_SECRET="change-me-to-a-long-random-string" node server/src/index.js
+The `rsgroup` schema with all 26 tables is applied to the Supabase project as migration
+`rs_group_medical_shop_schema` (also in `server/src/schema.sql` / `supabase/migrations/`).
+All tables have RLS enabled with no policies, so the data is not reachable through
+Supabase's public REST API — only through the app server.
+
+Get the connection string from **Supabase Dashboard → Connect → Session pooler**
+(IPv4-friendly; use the database password you set when creating the project):
+
+```
+postgresql://postgres.<project-ref>:<DB-PASSWORD>@aws-1-<region>.pooler.supabase.com:5432/postgres
 ```
 
-- Put it behind any reverse proxy (nginx/Caddy) with HTTPS.
-- Set `JWT_SECRET` (required for production) and optionally `DATA_DIR` for the DB location.
-- Backups: Settings → Company → *Download database backup* (or copy `server/data/rsgroup.db`).
-- For the staff app, set `BASE_URL` in `mobile/src/api.js` to your deployed HTTPS URL and
-  build with `eas build` (Expo).
+### 2. Railway (app: frontend + API)
+
+1. In Railway: **New Project → Deploy from GitHub repo** and pick this repository.
+   `railway.json` already configures the build (`npm run setup && npm run build`),
+   the start command, and the `/api/health` healthcheck.
+2. Add environment variables on the service:
+   - `DATABASE_URL` — the Supabase connection string above
+   - `JWT_SECRET` — a long random string (e.g. `openssl rand -hex 32`)
+   - optional: `SEED_ON_EMPTY=0` to start with an empty database instead of demo data
+3. Deploy. On first boot the server creates/verifies the schema and, if the database is
+   empty, seeds the full sample dataset automatically. Open the generated Railway URL
+   and log in with the demo credentials.
+4. **Generate Domain** in Railway settings for a public URL, then put that URL into
+   `mobile/src/api.js` (`BASE_URL`) and build the staff app with `eas build` (Expo).
+
+### Backups
+
+Supabase manages database backups (Dashboard → Database → Backups). The app also offers
+a portable JSON export of all business data under Settings → Company → Backup.
 
 ## Sample data
 

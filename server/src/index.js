@@ -3,8 +3,9 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import db from './db.js';
+import { pool, get, run, initSchema } from './db.js';
 import { authenticate } from './auth.js';
+import { runSeed } from './seed.js';
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
 import inventoryRoutes from './routes/inventory.js';
@@ -21,13 +22,25 @@ app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json({ limit: '4mb' }));
 
-// Auto-seed on first run so the app works out of the box
-if (db.prepare('SELECT COUNT(*) c FROM branches').get().c === 0) {
-  console.log('Empty database detected — seeding sample data...');
-  await import('./seed.js');
+// Ensure schema exists; auto-seed sample data on a fresh database so the app
+// works out of the box (set SEED_ON_EMPTY=0 to start with an empty database).
+await initSchema();
+if (process.env.SEED_ON_EMPTY !== '0') {
+  const { rows: [{ c }] } = await pool.query('SELECT COUNT(*)::int AS c FROM branches');
+  if (c === 0) {
+    console.log('Empty database detected — seeding sample data...');
+    await runSeed({ force: true });
+  }
 }
 
-app.get('/api/health', (req, res) => res.json({ ok: true, service: 'RS Group Medical Shop Management System' }));
+app.get('/api/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ ok: true, service: 'RS Group Medical Shop Management System', database: 'postgres' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'Database unreachable' });
+  }
+});
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', authenticate, adminRoutes);
@@ -51,6 +64,7 @@ if (fs.existsSync(webDist)) {
 // Global error handler
 app.use((err, req, res, next) => {
   console.error(err);
+  if (res.headersSent) return next(err);
   res.status(500).json({ error: 'Something went wrong. Please try again.' });
 });
 
@@ -60,27 +74,27 @@ app.listen(PORT, () => {
 });
 
 // ---------- Scheduled reminders (low stock / expiry / dues / cash closing) ----------
-function dailyChecks() {
+async function dailyChecks() {
   try {
-    const branches = db.prepare('SELECT * FROM branches WHERE active = 1').all();
+    const branches = (await pool.query('SELECT * FROM branches WHERE active = 1')).rows;
     for (const b of branches) {
-      const low = db.prepare(`SELECT COUNT(*) c FROM (
+      const low = (await get(`SELECT COUNT(*) AS c FROM (
         SELECT m.id FROM medicines m LEFT JOIN stock_batches sb ON sb.medicine_id = m.id AND sb.branch_id = ?
-        WHERE m.active = 1 GROUP BY m.id HAVING COALESCE(SUM(sb.qty),0) <= m.min_stock)`).get(b.id).c;
-      const expiring = db.prepare(`SELECT COUNT(*) c FROM stock_batches
-        WHERE branch_id = ? AND qty > 0 AND expiry_date BETWEEN date('now') AND date('now','+30 days')`).get(b.id).c;
-      const closedToday = db.prepare(`SELECT 1 FROM cash_closings WHERE branch_id = ? AND date = date('now')`).get(b.id);
-      const notifyOnce = (type, title, message) => {
-        const dup = db.prepare(`SELECT 1 FROM notifications WHERE branch_id = ? AND type = ? AND title = ? AND date(created_at) = date('now')`)
-          .get(b.id, type, title);
+        WHERE m.active = 1 GROUP BY m.id HAVING COALESCE(SUM(sb.qty),0) <= MIN(m.min_stock)) t`, b.id)).c;
+      const expiring = (await get(`SELECT COUNT(*) AS c FROM stock_batches
+        WHERE branch_id = ? AND qty > 0 AND expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30`, b.id)).c;
+      const closedToday = await get('SELECT 1 FROM cash_closings WHERE branch_id = ? AND date = CURRENT_DATE', b.id);
+      const notifyOnce = async (type, title, message) => {
+        const dup = await get(`SELECT 1 FROM notifications WHERE branch_id = ? AND type = ? AND title = ? AND created_at::date = CURRENT_DATE`,
+          b.id, type, title);
         if (!dup) {
-          db.prepare('INSERT INTO notifications (branch_id, type, title, message) VALUES (?,?,?,?)').run(b.id, type, title, message);
+          await run('INSERT INTO notifications (branch_id, type, title, message) VALUES (?,?,?,?)', b.id, type, title, message);
         }
       };
-      if (low > 0) notifyOnce('stock', 'Low stock reminder', `${low} medicine(s) are at or below minimum stock in ${b.name}.`);
-      if (expiring > 0) notifyOnce('expiry', 'Expiry reminder', `${expiring} batch(es) expire within 30 days in ${b.name}.`);
+      if (low > 0) await notifyOnce('stock', 'Low stock reminder', `${low} medicine(s) are at or below minimum stock in ${b.name}.`);
+      if (expiring > 0) await notifyOnce('expiry', 'Expiry reminder', `${expiring} batch(es) expire within 30 days in ${b.name}.`);
       const hour = new Date().getHours();
-      if (hour >= 20 && !closedToday) notifyOnce('accounts', 'Cash closing pending', `Daily cash closing for ${b.name} has not been done yet.`);
+      if (hour >= 20 && !closedToday) await notifyOnce('accounts', 'Cash closing pending', `Daily cash closing for ${b.name} has not been done yet.`);
     }
   } catch (e) {
     console.error('Scheduled check failed:', e.message);

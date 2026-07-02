@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Point this at your deployed RS Group server (or LAN IP during development)
+// Point this at your deployed RS Group server on Railway
+// (e.g. 'https://rs-group-production.up.railway.app') or a LAN IP during development.
 export const BASE_URL = 'http://192.168.1.100:4000';
 
 let token = null;

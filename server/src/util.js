@@ -1,11 +1,12 @@
-import db from './db.js';
+import { all, get, run, insert } from './db.js';
 
 // ---------- Audit log ----------
 export function audit(req, action, entity = '', entityId = null, details = '') {
-  db.prepare(`INSERT INTO audit_logs (user_id, branch_id, action, entity, entity_id, details, ip)
-              VALUES (?,?,?,?,?,?,?)`)
-    .run(req.user?.id || null, req.user?.branch_id || null, action, entity, entityId,
-      typeof details === 'string' ? details : JSON.stringify(details), req.ip || '');
+  run(`INSERT INTO audit_logs (user_id, branch_id, action, entity, entity_id, details, ip)
+       VALUES (?,?,?,?,?,?,?)`,
+    req.user?.id || null, req.user?.branch_id || null, action, entity, entityId,
+    typeof details === 'string' ? details : JSON.stringify(details), req.ip || '')
+    .catch(e => console.error('audit failed:', e.message));
 }
 
 // ---------- Notifications + real-time SSE bus ----------
@@ -31,11 +32,10 @@ function relevantTo(user, n) {
   return true;
 }
 
-export function notify({ branch_id = null, user_id = null, role = null, type = 'info', title, message = '' }) {
-  const info = db.prepare(`INSERT INTO notifications (branch_id, user_id, role, type, title, message)
-                           VALUES (?,?,?,?,?,?)`)
-    .run(branch_id, user_id, role, type, title, message);
-  const n = { id: info.lastInsertRowid, branch_id, user_id, role, type, title, message };
+export async function notify({ branch_id = null, user_id = null, role = null, type = 'info', title, message = '' }) {
+  const id = await insert(`INSERT INTO notifications (branch_id, user_id, role, type, title, message)
+                           VALUES (?,?,?,?,?,?)`, branch_id, user_id, role, type, title, message);
+  const n = { id, branch_id, user_id, role, type, title, message };
   for (const client of sseClients) {
     if (relevantTo(client.user, n)) {
       client.res.write(`event: notification\ndata: ${JSON.stringify(n)}\n\n`);
@@ -52,67 +52,66 @@ export function broadcast(event, data, branch_id = null) {
 }
 
 // ---------- Invoice numbering ----------
-export function nextInvoiceNo(branchId) {
-  const branch = db.prepare('SELECT code FROM branches WHERE id = ?').get(branchId);
+export async function nextInvoiceNo(branchId, dbh = { get }) {
+  const branch = await dbh.get('SELECT code FROM branches WHERE id = ?', branchId);
   const year = new Date().getFullYear();
-  const row = db.prepare(`SELECT COUNT(*) AS c FROM sales WHERE branch_id = ?`).get(branchId);
+  const row = await dbh.get('SELECT COUNT(*) AS c FROM sales WHERE branch_id = ?', branchId);
   let seq = row.c + 1;
   let invoiceNo;
-  // Ensure uniqueness even after deletes/imports
   do {
     invoiceNo = `${branch.code}/${year}/${String(seq).padStart(5, '0')}`;
     seq += 1;
-  } while (db.prepare('SELECT 1 FROM sales WHERE invoice_no = ?').get(invoiceNo));
+  } while (await dbh.get('SELECT 1 FROM sales WHERE invoice_no = ?', invoiceNo));
   return invoiceNo;
 }
 
 // ---------- Stock helpers ----------
-export function branchStock(medicineId, branchId) {
-  const row = db.prepare(`SELECT COALESCE(SUM(qty),0) AS qty FROM stock_batches
-                          WHERE medicine_id = ? AND branch_id = ?`).get(medicineId, branchId);
+export async function branchStock(medicineId, branchId) {
+  const row = await get(`SELECT COALESCE(SUM(qty),0) AS qty FROM stock_batches
+                         WHERE medicine_id = ? AND branch_id = ?`, medicineId, branchId);
   return row.qty;
 }
 
-export function checkStockAlerts(medicineId, branchId) {
-  const med = db.prepare('SELECT * FROM medicines WHERE id = ?').get(medicineId);
+export async function checkStockAlerts(medicineId, branchId) {
+  const med = await get('SELECT * FROM medicines WHERE id = ?', medicineId);
   if (!med) return;
-  const qty = branchStock(medicineId, branchId);
+  const qty = await branchStock(medicineId, branchId);
   if (qty <= 0) {
-    notify({ branch_id: branchId, type: 'stock', title: 'Out of stock', message: `${med.name} is out of stock.` });
+    await notify({ branch_id: branchId, type: 'stock', title: 'Out of stock', message: `${med.name} is out of stock.` });
   } else if (qty <= med.min_stock) {
-    notify({ branch_id: branchId, type: 'stock', title: 'Low stock alert', message: `${med.name} has only ${qty} ${med.unit}(s) left (min ${med.min_stock}).` });
+    await notify({ branch_id: branchId, type: 'stock', title: 'Low stock alert', message: `${med.name} has only ${qty} ${med.unit}(s) left (min ${med.min_stock}).` });
   }
 }
 
 // ---------- Settings ----------
-export function getSetting(key, fallback = null) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+export async function getSetting(key, fallback = null) {
+  const row = await get('SELECT value FROM settings WHERE key = ?', key);
   if (!row) return fallback;
   try { return JSON.parse(row.value); } catch { return row.value; }
 }
 
-export function setSetting(key, value) {
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-    .run(key, JSON.stringify(value));
+export async function setSetting(key, value) {
+  await run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
+    key, JSON.stringify(value));
 }
 
 // ---------- Misc ----------
 export const today = () => new Date().toISOString().slice(0, 10);
 export const round2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
-export function customerCreditBalance(customerId) {
-  const credit = db.prepare(`SELECT COALESCE(SUM(credit_amount),0) AS c FROM sales
-                             WHERE customer_id = ? AND status != 'cancelled'`).get(customerId).c;
-  const paid = db.prepare(`SELECT COALESCE(SUM(CASE WHEN type='receipt' THEN amount ELSE -amount END),0) AS p
-                           FROM payments WHERE customer_id = ? AND sale_id IS NULL`).get(customerId).p;
+export async function customerCreditBalance(customerId) {
+  const credit = (await get(`SELECT COALESCE(SUM(credit_amount),0) AS c FROM sales
+                             WHERE customer_id = ? AND status != 'cancelled'`, customerId)).c;
+  const paid = (await get(`SELECT COALESCE(SUM(CASE WHEN type='receipt' THEN amount ELSE -amount END),0) AS p
+                           FROM payments WHERE customer_id = ? AND sale_id IS NULL`, customerId)).p;
   return round2(credit - paid);
 }
 
-export function supplierBalance(supplierId) {
-  const s = db.prepare('SELECT opening_balance FROM suppliers WHERE id = ?').get(supplierId);
-  const purchases = db.prepare(`SELECT COALESCE(SUM(total),0) AS t FROM purchases
-                                WHERE supplier_id = ? AND status != 'returned'`).get(supplierId).t;
-  const returns = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM purchase_returns WHERE supplier_id = ?`).get(supplierId).t;
-  const paid = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM supplier_payments WHERE supplier_id = ?`).get(supplierId).t;
+export async function supplierBalance(supplierId) {
+  const s = await get('SELECT opening_balance FROM suppliers WHERE id = ?', supplierId);
+  const purchases = (await get(`SELECT COALESCE(SUM(total),0) AS t FROM purchases
+                                WHERE supplier_id = ? AND status != 'returned'`, supplierId)).t;
+  const returns = (await get('SELECT COALESCE(SUM(amount),0) AS t FROM purchase_returns WHERE supplier_id = ?', supplierId)).t;
+  const paid = (await get('SELECT COALESCE(SUM(amount),0) AS t FROM supplier_payments WHERE supplier_id = ?', supplierId)).t;
   return round2((s?.opening_balance || 0) + purchases - returns - paid);
 }

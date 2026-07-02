@@ -10,8 +10,7 @@ const LOGO = path.join(__dirname, '..', '..', 'assets', 'rs-group-logo.jpg');
 const BLUE = '#1e4d8c', GREEN = '#2e8b3d', ORANGE = '#e07b1f', GREY = '#555555', LIGHT = '#f0f4fa';
 const rupee = n => `Rs. ${Number(n || 0).toFixed(2)}`;
 
-function header(doc, branch, title) {
-  const company = getSetting('company', {});
+function header(doc, branch, title, company = {}) {
   if (fs.existsSync(LOGO)) {
     try { doc.image(LOGO, 40, 28, { width: 64 }); } catch { /* logo optional */ }
   }
@@ -25,14 +24,15 @@ function header(doc, branch, title) {
   return 122;
 }
 
-export function invoicePdf(res, sale, items, branch, customer, staff) {
-  const invoiceCfg = getSetting('invoice', {});
+export async function invoicePdf(res, sale, items, branch, customer, staff) {
+  const invoiceCfg = (await getSetting('invoice', {})) || {};
+  const company = (await getSetting('company', {})) || {};
   const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="invoice-${sale.invoice_no.replaceAll('/', '-')}.pdf"`);
   doc.pipe(res);
 
-  let y = header(doc, branch, 'TAX INVOICE');
+  let y = header(doc, branch, 'TAX INVOICE', company);
   y += 8;
   // Invoice meta box
   doc.roundedRect(40, y, 515, 58, 4).fillAndStroke(LIGHT, '#d5dfef');
@@ -105,13 +105,14 @@ export function invoicePdf(res, sale, items, branch, customer, staff) {
   doc.end();
 }
 
-export function reportPdf(res, { title, branchName, period, columns, rows, summary = [] }) {
+export async function reportPdf(res, { title, branchName, period, columns, rows, summary = [] }) {
+  const company = (await getSetting('company', {})) || {};
   const doc = new PDFDocument({ size: 'A4', margin: 40, layout: columns.length > 7 ? 'landscape' : 'portrait' });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${title.toLowerCase().replace(/\s+/g, '-')}.pdf"`);
   doc.pipe(res);
   const pageW = doc.page.width - 80;
-  let y = header(doc, { name: branchName || 'All Branches' }, title.toUpperCase());
+  let y = header(doc, { name: branchName || 'All Branches' }, title.toUpperCase(), company);
   doc.font('Helvetica').fontSize(8.5).fillColor(GREY).text(period || '', 40, y, { width: pageW, align: 'center' });
   y += 18;
   const colW = pageW / columns.length;

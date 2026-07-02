@@ -118,8 +118,11 @@ function Company() {
         <button className="btn green" onClick={() => save('invoice')}>Save Invoice Settings</button>
         <hr style={{ margin: '18px 0', border: 'none', borderTop: '1px solid var(--line)' }} />
         <h4 style={{ marginBottom: 8 }}>Backup</h4>
-        <a className="btn ghost" href={fileUrl('/admin/backup')}>⬇ Download database backup</a>
-        <div className="muted" style={{ marginTop: 8 }}>Restore: replace <code>server/data/rsgroup.db</code> with a backup file and restart.</div>
+        <a className="btn ghost" href={fileUrl('/admin/backup')}>⬇ Download data export (JSON)</a>
+        <div className="muted" style={{ marginTop: 8 }}>
+          Full database backups &amp; point-in-time restore are managed by Supabase
+          (Dashboard → Database → Backups). This export is an extra portable copy of your business data.
+        </div>
       </Card>
     </div>
   );

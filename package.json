@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "RS Group Medical Shop Management System — multi-branch pharmacy billing, inventory, analytics and staff app",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "setup": "npm install --prefix server && npm install --prefix web",
     "build": "npm run build --prefix web",
