@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "RS Group Staff",
+    "slug": "rs-group-staff",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/rs-group-logo.jpg",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/rs-group-logo.jpg",
+      "resizeMode": "contain",
+      "backgroundColor": "#1e4d8c"
+    },
+    "android": {
+      "package": "in.rsgroup.staff",
+      "permissions": ["CAMERA"]
+    },
+    "ios": {
+      "bundleIdentifier": "in.rsgroup.staff",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera is used to scan medicine barcodes."
+      }
+    }
+  }
+}
