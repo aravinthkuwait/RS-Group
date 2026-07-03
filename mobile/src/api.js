@@ -8,6 +8,7 @@ export async function loadToken() {
   token = await AsyncStorage.getItem('rsg_token');
   return token;
 }
+export function getAuthToken() { return token || ''; }
 export async function setToken(t) {
   token = t;
   if (t) await AsyncStorage.setItem('rsg_token', t);

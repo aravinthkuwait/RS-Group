@@ -16,6 +16,7 @@ import accountsRoutes from './routes/accounts.js';
 import reportsRoutes from './routes/reports.js';
 import staffRoutes from './routes/staff.js';
 import promotionRoutes from './routes/promotions.js';
+import { manualPdf } from './manual.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -89,6 +90,10 @@ app.use('/api/accounts', authenticate, accountsRoutes);
 app.use('/api/reports', authenticate, reportsRoutes);
 app.use('/api/staff', authenticate, staffRoutes);
 app.use('/api/promotions', authenticate, promotionRoutes);
+// User manual as branded PDF (any logged-in user)
+app.get('/api/manual', authenticate, (req, res, next) => {
+  manualPdf(res, req.user.name).catch(next);
+});
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'API endpoint not found' }));
 

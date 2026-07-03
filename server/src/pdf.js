@@ -10,7 +10,7 @@ const LOGO = path.join(__dirname, '..', '..', 'assets', 'rs-group-logo.jpg');
 const BLUE = '#1e4d8c', GREEN = '#2e8b3d', ORANGE = '#e07b1f', GREY = '#555555', LIGHT = '#f0f4fa';
 const rupee = n => `Rs. ${Number(n || 0).toFixed(2)}`;
 
-function header(doc, branch, title, company = {}) {
+export function header(doc, branch, title, company = {}) {
   if (fs.existsSync(LOGO)) {
     try { doc.image(LOGO, 40, 28, { width: 64 }); } catch { /* logo optional */ }
   }
@@ -164,7 +164,7 @@ export async function invoicePdf(res, sale, items, branch, customer, staff, prin
 }
 
 // Page number + printed-by footer on every buffered page
-function stampFooter(doc, printedBy) {
+export function stampFooter(doc, printedBy) {
   const range = doc.bufferedPageRange();
   const when = new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
   for (let i = 0; i < range.count; i++) {
