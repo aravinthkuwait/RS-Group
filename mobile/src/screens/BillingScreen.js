@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, Modal, ScrollView } from 'react-native';
-import { BarCodeScanner } from 'expo-barcode-scanner';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { api, fmt } from '../api';
 import { colors, shadow } from '../theme';
 
@@ -12,6 +12,7 @@ export default function BillingScreen() {
   const [payMode, setPayMode] = useState('cash');
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
   const debounce = useRef(null);
 
   useEffect(() => {
@@ -33,6 +34,7 @@ export default function BillingScreen() {
   };
 
   const onScan = ({ data }) => {
+    if (!scanning) return;
     setScanning(false);
     api('/inventory/medicines/pos-search', { params: { q: data } })
       .then(d => d.results.length ? add(d.results[0]) : Alert.alert('Not found', `No in-stock medicine for barcode ${data}`))
@@ -40,9 +42,11 @@ export default function BillingScreen() {
   };
 
   const startScan = async () => {
-    const { status } = await BarCodeScanner.requestPermissionsAsync();
-    if (status === 'granted') setScanning(true);
-    else Alert.alert('Camera permission needed to scan barcodes');
+    if (!permission?.granted) {
+      const r = await requestPermission();
+      if (!r.granted) return Alert.alert('Camera permission needed to scan barcodes');
+    }
+    setScanning(true);
   };
 
   const total = Math.round(cart.reduce((a, i) => a + i.qty * i.price, 0));
@@ -135,7 +139,11 @@ export default function BillingScreen() {
 
       <Modal visible={scanning} animationType="slide">
         <View style={{ flex: 1, backgroundColor: '#000' }}>
-          <BarCodeScanner onBarCodeScanned={onScan} style={{ flex: 1 }} />
+          <CameraView
+            style={{ flex: 1 }}
+            onBarcodeScanned={onScan}
+            barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39', 'qr'] }}
+          />
           <TouchableOpacity onPress={() => setScanning(false)} style={{ backgroundColor: colors.red, padding: 16 }}>
             <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>Cancel</Text>
           </TouchableOpacity>

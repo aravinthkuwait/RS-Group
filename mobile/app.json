@@ -20,6 +20,17 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Camera is used to scan medicine barcodes."
       }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        { "cameraPermission": "Camera is used to scan medicine barcodes." }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "PASTE-YOUR-EAS-PROJECT-ID-HERE"
+      }
     }
   }
 }
