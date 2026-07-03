@@ -7,3 +7,4 @@
 - 2026-07-03: Fixed blank-page (stale asset cache -> 404 + cache headers) and tab-switch crash (16x useEffect promise-cleanup bug). Added error boundary.
 - 2026-07-03: Added GitHub Actions CI (build + Postgres + e2e); run #1 green.
 - 2026-07-03: User requested always-on skills: caveman (exists), memory (created in-repo); graphify/headroom/ponytail not found anywhere.
+- 2026-07-03: Added PWA install (manifest+icons+sw) so staff install app from rs-group-production.up.railway.app; native APK needs Expo/EAS account, offered CI-built APK.
