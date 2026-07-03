@@ -5,16 +5,20 @@
     "owner": "aravinthkuwait",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/rs-group-logo.jpg",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/rs-group-logo.jpg",
-      "resizeMode": "contain",
+      "image": "./assets/splash.png",
+      "resizeMode": "cover",
       "backgroundColor": "#1e4d8c"
     },
     "android": {
       "package": "in.rsgroup.staff",
-      "permissions": ["CAMERA"]
+      "permissions": ["CAMERA"],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
     },
     "ios": {
       "bundleIdentifier": "in.rsgroup.staff",
