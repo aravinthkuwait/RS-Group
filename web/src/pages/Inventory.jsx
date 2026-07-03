@@ -33,7 +33,7 @@ function Medicines() {
 
   const load = () => api('/inventory/medicines', { params: { q, category, branch_id: branchId, page, limit: 25 } })
     .then(d => { setRows(d.medicines); setTotal(d.total); }).catch(e => toast(e.message, 'red'));
-  useEffect(load, [q, category, branchId, page]);
+  useEffect(() => { load(); }, [q, category, branchId, page]);
   useEffect(() => { api('/admin/settings').then(d => setCats(d.settings.medicine_categories || [])); }, []);
 
   return (
@@ -128,7 +128,7 @@ function Stock() {
   const [q, setQ] = useState('');
   const load = () => api('/inventory/stock', { params: { q, branch_id: branchId } })
     .then(d => setRows(d.stock)).catch(e => toast(e.message, 'red'));
-  useEffect(load, [q, branchId]);
+  useEffect(() => { load(); }, [q, branchId]);
   const value = rows.reduce((a, r) => a + r.qty * r.purchase_price, 0);
   return (
     <Card>
@@ -173,7 +173,7 @@ function Adjustments() {
   const [show, setShow] = useState(false);
   const load = () => api('/inventory/adjustments', { params: { branch_id: branchId } })
     .then(d => setRows(d.adjustments)).catch(e => toast(e.message, 'red'));
-  useEffect(load, [branchId]);
+  useEffect(() => { load(); }, [branchId]);
   return (
     <Card>
       <div className="toolbar">

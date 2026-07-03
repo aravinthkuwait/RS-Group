@@ -35,7 +35,7 @@ function MyAccount() {
     api('/auth/sessions').then(setSessions).catch(() => {});
     api('/auth/login-history').then(d => setHistory(d.history)).catch(() => {});
   };
-  useEffect(load, []);
+  useEffect(() => { load(); }, []);
 
   const changePw = async () => {
     try {
@@ -164,7 +164,7 @@ function Branches() {
   const [rows, setRows] = useState([]);
   const [edit, setEdit] = useState(null);
   const load = () => api('/admin/branches').then(d => setRows(d.branches)).catch(e => toast(e.message, 'red'));
-  useEffect(load, []);
+  useEffect(() => { load(); }, []);
 
   const del = async b => {
     if (!confirm(`Delete/deactivate branch ${b.name}?`)) return;

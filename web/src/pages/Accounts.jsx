@@ -32,7 +32,7 @@ function Expenses() {
 
   const load = () => api('/accounts/expenses', { params: { ...range, branch_id: branchId } })
     .then(setD).catch(e => toast(e.message, 'red'));
-  useEffect(load, [branchId, range.from, range.to]);
+  useEffect(() => { load(); }, [branchId, range.from, range.to]);
   useEffect(() => { api('/admin/settings').then(x => setCats(x.settings.expense_categories || [])); }, []);
 
   const del = async e => {
@@ -122,7 +122,7 @@ function CashClosing() {
       .catch(e => toast(e.message, 'red'));
     api('/accounts/cash-closing/history', { params: { branch_id: activeBranch } }).then(x => setHistory(x.closings));
   };
-  useEffect(load, [date, activeBranch]);
+  useEffect(() => { load(); }, [date, activeBranch]);
 
   const save = async () => {
     try {

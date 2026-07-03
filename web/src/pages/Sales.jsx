@@ -15,7 +15,7 @@ export default function Sales() {
 
   const load = () => api('/sales', { params: { ...filters, branch_id: branchId, limit: 100 } })
     .then(d => { setRows(d.sales); setTotal(d.total); }).catch(e => toast(e.message, 'red'));
-  useEffect(load, [branchId, filters.from, filters.to, filters.status, filters.payment]);
+  useEffect(() => { load(); }, [branchId, filters.from, filters.to, filters.status, filters.payment]);
 
   const openBill = id => api(`/sales/${id}`).then(d => setView(d.sale)).catch(e => toast(e.message, 'red'));
 

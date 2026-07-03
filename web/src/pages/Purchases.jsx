@@ -32,7 +32,7 @@ function PurchaseList() {
 
   const load = () => api('/purchases', { params: { branch_id: branchId } })
     .then(d => setRows(d.purchases)).catch(e => toast(e.message, 'red'));
-  useEffect(load, [branchId]);
+  useEffect(() => { load(); }, [branchId]);
 
   const open = id => api(`/purchases/${id}`).then(d => setView(d.purchase)).catch(e => toast(e.message, 'red'));
 
@@ -254,7 +254,7 @@ function Suppliers() {
   const [paying, setPaying] = useState(null);
 
   const load = () => api('/purchases/suppliers').then(d => setRows(d.suppliers)).catch(e => toast(e.message, 'red'));
-  useEffect(load, []);
+  useEffect(() => { load(); }, []);
 
   const openLedger = s => api(`/purchases/suppliers/${s.id}/ledger`).then(setLedger).catch(e => toast(e.message, 'red'));
 

@@ -32,7 +32,7 @@ function Users() {
   const { branches } = useBranch();
 
   const load = () => api('/admin/users').then(setD).catch(e => toast(e.message, 'red'));
-  useEffect(load, []);
+  useEffect(() => { load(); }, []);
 
   return (
     <Card>
@@ -115,7 +115,7 @@ function Tasks() {
   const [users, setUsers] = useState([]);
 
   const load = () => api('/staff/tasks', { params: { branch_id: branchId } }).then(d => setRows(d.tasks)).catch(e => toast(e.message, 'red'));
-  useEffect(load, [branchId]);
+  useEffect(() => { load(); }, [branchId]);
   useEffect(() => {
     if (can(user, 'tasks.manage')) api('/admin/users').then(d => setUsers(d.users.filter(x => x.active)));
   }, []);
@@ -191,7 +191,7 @@ function Attendance() {
     api('/staff/attendance/today').then(d => setMine(d.attendance)).catch(() => {});
     api('/staff/attendance', { params: { branch_id: branchId } }).then(d => setRows(d.attendance)).catch(e => toast(e.message, 'red'));
   };
-  useEffect(load, [branchId]);
+  useEffect(() => { load(); }, [branchId]);
 
   const mark = async which => {
     try {
@@ -233,7 +233,7 @@ function Deliveries() {
   const [rows, setRows] = useState([]);
   const load = () => api('/sales/deliveries/list', { params: { branch_id: branchId } })
     .then(d => setRows(d.deliveries)).catch(e => toast(e.message, 'red'));
-  useEffect(load, [branchId]);
+  useEffect(() => { load(); }, [branchId]);
 
   const update = async (r, status) => {
     try {

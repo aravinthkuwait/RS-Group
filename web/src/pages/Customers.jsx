@@ -20,7 +20,7 @@ export default function Customers() {
     api('/customers', { params: { q, branch_id: branchId, limit: 100 } }).then(d => setRows(d.customers)).catch(e => toast(e.message, 'red'));
     api('/customers/dues/list', { params: { branch_id: branchId } }).then(setDues).catch(() => {});
   };
-  useEffect(load, [q, branchId]);
+  useEffect(() => { load(); }, [q, branchId]);
 
   const openProfile = c => api(`/customers/${c.id}`).then(setProfile).catch(e => toast(e.message, 'red'));
 

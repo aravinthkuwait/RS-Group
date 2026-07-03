@@ -12,7 +12,7 @@ export default function Transfers() {
 
   const load = () => api('/inventory/transfers', { params: { branch_id: branchId } })
     .then(d => setRows(d.transfers)).catch(e => toast(e.message, 'red'));
-  useEffect(load, [branchId]);
+  useEffect(() => { load(); }, [branchId]);
 
   const receive = async t => {
     try {
