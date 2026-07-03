@@ -24,8 +24,27 @@ app.use(express.json({ limit: '4mb' }));
 
 // Ensure schema exists; auto-seed sample data on a fresh database so the app
 // works out of the box (set SEED_ON_EMPTY=0 to start with an empty database).
-await initSchema();
-if (process.env.SEED_ON_EMPTY !== '0') {
+// Retries for ~60s so a slow-to-wake database doesn't kill the deploy, and the
+// server always starts so the logs and /api/health explain what's wrong.
+if (!process.env.DATABASE_URL) {
+  console.error('*** DATABASE_URL is not set. ***');
+  console.error('Add it in Railway → your service → Variables. Use the Supabase');
+  console.error('"Session pooler" connection string with your database password.');
+}
+let dbReady = false;
+let dbError = '';
+for (let attempt = 1; attempt <= 12 && !dbReady; attempt++) {
+  try {
+    await initSchema();
+    dbReady = true;
+    console.log('Database connected and schema verified.');
+  } catch (e) {
+    dbError = e.message;
+    console.error(`Database connection attempt ${attempt}/12 failed: ${e.message}`);
+    if (attempt < 12) await new Promise(r => setTimeout(r, 5000));
+  }
+}
+if (dbReady && process.env.SEED_ON_EMPTY !== '0') {
   const { rows: [{ c }] } = await pool.query('SELECT COUNT(*)::int AS c FROM branches');
   if (c === 0) {
     console.log('Empty database detected — seeding sample data...');
@@ -38,7 +57,12 @@ app.get('/api/health', async (req, res) => {
     await pool.query('SELECT 1');
     res.json({ ok: true, service: 'RS Group Medical Shop Management System', database: 'postgres' });
   } catch (e) {
-    res.status(500).json({ ok: false, error: 'Database unreachable' });
+    res.status(500).json({
+      ok: false,
+      error: process.env.DATABASE_URL
+        ? `Database unreachable: ${e.message}`
+        : 'DATABASE_URL environment variable is not set',
+    });
   }
 });
 
