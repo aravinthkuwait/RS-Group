@@ -46,7 +46,8 @@ for (let attempt = 1; attempt <= 12 && !dbReady; attempt++) {
 }
 if (dbReady && process.env.SEED_ON_EMPTY !== '0') {
   const { rows: [{ c }] } = await pool.query('SELECT COUNT(*)::int AS c FROM branches');
-  if (c === 0) {
+  const wiped = (await pool.query(`SELECT 1 FROM settings WHERE key = 'demo_data_wiped'`)).rows.length > 0;
+  if (c === 0 && !wiped) {
     console.log('Empty database detected — seeding sample data...');
     await runSeed({ force: true });
   }

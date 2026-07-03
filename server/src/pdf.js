@@ -24,7 +24,7 @@ function header(doc, branch, title, company = {}) {
   return 122;
 }
 
-export async function invoicePdf(res, sale, items, branch, customer, staff) {
+export async function invoicePdf(res, sale, items, branch, customer, staff, printedBy = '') {
   const invoiceCfg = (await getSetting('invoice', {})) || {};
   const company = (await getSetting('company', {})) || {};
   const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
@@ -74,6 +74,36 @@ export async function invoicePdf(res, sale, items, branch, customer, staff) {
   doc.moveTo(40, y).lineTo(555, y).lineWidth(0.5).strokeColor('#cccccc').stroke();
   y += 8;
 
+  // GST breakdown by rate (CGST/SGST split)
+  const byRate = {};
+  for (const it of items) {
+    const r = (byRate[it.gst_rate] = byRate[it.gst_rate] || { taxable: 0, gst: 0 });
+    r.taxable += it.total - it.gst_amount;
+    r.gst += it.gst_amount;
+  }
+  const gstRows = Object.entries(byRate).sort((a, b) => a[0] - b[0]);
+  const gy0 = y;
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(BLUE).text('GST BREAKDOWN', 40, y);
+  let gy = y + 12;
+  doc.rect(40, gy, 300, 13).fill(BLUE);
+  doc.fillColor('#fff').fontSize(7.5);
+  doc.text('GST %', 44, gy + 3, { width: 40 });
+  doc.text('Taxable', 90, gy + 3, { width: 60, align: 'right' });
+  doc.text('CGST', 155, gy + 3, { width: 55, align: 'right' });
+  doc.text('SGST', 215, gy + 3, { width: 55, align: 'right' });
+  doc.text('Total GST', 275, gy + 3, { width: 60, align: 'right' });
+  gy += 13;
+  doc.font('Helvetica').fillColor('#000');
+  for (const [rate, v] of gstRows) {
+    doc.text(`${rate}%`, 44, gy + 3, { width: 40 });
+    doc.text(round2(v.taxable).toFixed(2), 90, gy + 3, { width: 60, align: 'right' });
+    doc.text(round2(v.gst / 2).toFixed(2), 155, gy + 3, { width: 55, align: 'right' });
+    doc.text(round2(v.gst / 2).toFixed(2), 215, gy + 3, { width: 55, align: 'right' });
+    doc.text(round2(v.gst).toFixed(2), 275, gy + 3, { width: 60, align: 'right' });
+    gy += 12;
+  }
+  doc.moveTo(40, gy + 1).lineTo(340, gy + 1).lineWidth(0.5).strokeColor('#cccccc').stroke();
+
   // Totals
   const savings = round2(items.reduce((a, it) => a + (it.mrp - it.price) * it.qty, 0) + sale.discount);
   const totals = [
@@ -92,6 +122,7 @@ export async function invoicePdf(res, sale, items, branch, customer, staff) {
     .text('TOTAL', 380, y + 5, { width: 100, align: 'right' })
     .text(rupee(sale.total), 480, y + 5, { width: 70, align: 'right' });
   y += 26;
+  y = Math.max(y, gy + 12);
   const pays = [['Cash', sale.paid_cash], ['UPI', sale.paid_upi], ['Card', sale.paid_card], ['Credit', sale.credit_amount]]
     .filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${rupee(v)}`).join('    ');
   doc.font('Helvetica').fontSize(8.5).fillColor(GREY).text(`Payment - ${pays || 'N/A'}`, 40, y);
@@ -102,12 +133,30 @@ export async function invoicePdf(res, sale, items, branch, customer, staff) {
   doc.font('Helvetica').fontSize(7.5).fillColor(GREY)
     .text(invoiceCfg.terms || '', 40, y, { width: 515 })
     .text(invoiceCfg.footer || '', 40, y + 20, { width: 515, align: 'center' });
+  stampFooter(doc, printedBy);
   doc.end();
 }
 
-export async function reportPdf(res, { title, branchName, period, columns, rows, summary = [] }) {
+// Page number + printed-by footer on every buffered page
+function stampFooter(doc, printedBy) {
+  const range = doc.bufferedPageRange();
+  const when = new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  for (let i = 0; i < range.count; i++) {
+    doc.switchToPage(range.start + i);
+    const bottom = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    doc.font('Helvetica').fontSize(7).fillColor('#8a8a8a')
+      .text(printedBy ? `Downloaded by ${printedBy} on ${when}` : `Generated on ${when}`,
+        40, doc.page.height - 26, { lineBreak: false })
+      .text(`Page ${i + 1} of ${range.count}`,
+        doc.page.width - 140, doc.page.height - 26, { width: 100, align: 'right', lineBreak: false });
+    doc.page.margins.bottom = bottom;
+  }
+}
+
+export async function reportPdf(res, { title, branchName, period, columns, rows, summary = [], printedBy = '' }) {
   const company = (await getSetting('company', {})) || {};
-  const doc = new PDFDocument({ size: 'A4', margin: 40, layout: columns.length > 7 ? 'landscape' : 'portrait' });
+  const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true, layout: columns.length > 7 ? 'landscape' : 'portrait' });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${title.toLowerCase().replace(/\s+/g, '-')}.pdf"`);
   doc.pipe(res);
@@ -141,5 +190,6 @@ export async function reportPdf(res, { title, branchName, period, columns, rows,
     doc.text(`${label}: ${val}`, 40, y, { width: pageW, align: 'right' });
     y += 14;
   });
+  stampFooter(doc, printedBy);
   doc.end();
 }

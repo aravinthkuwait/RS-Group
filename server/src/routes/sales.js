@@ -247,7 +247,7 @@ router.get('/:id(\\d+)/pdf', requirePermission('billing.view', 'billing.create')
   if (!sale) return res.status(404).json({ error: 'Bill not found' });
   const branch = await get('SELECT * FROM branches WHERE id = ?', sale.branch_id);
   const customer = sale.customer_id ? await get('SELECT * FROM customers WHERE id = ?', sale.customer_id) : null;
-  await invoicePdf(res, sale, sale.items, branch, customer, { name: sale.staff_name });
+  await invoicePdf(res, sale, sale.items, branch, customer, { name: sale.staff_name }, req.user.name);
 }));
 
 // WhatsApp share: returns a wa.me deep link with the bill summary

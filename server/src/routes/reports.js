@@ -301,7 +301,7 @@ router.get('/:key(sales|stock|expiry|purchases|gst|products|staff)/export', requ
     res.setHeader('Content-Disposition', `attachment; filename="${req.params.key}-report.xlsx"`);
     return res.send(buf);
   }
-  await reportPdf(res, { title: r.title, branchName, period, columns: r.columns, rows: data.rows, summary: r.summary(data) });
+  await reportPdf(res, { title: r.title, branchName, period, columns: r.columns, rows: data.rows, summary: r.summary(data), printedBy: req.user.name });
 }));
 
 export default router;

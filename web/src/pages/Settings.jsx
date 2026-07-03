@@ -123,13 +123,65 @@ function Company() {
         <button className="btn green" onClick={() => save('invoice')}>Save Invoice Settings</button>
         <hr style={{ margin: '18px 0', border: 'none', borderTop: '1px solid var(--line)' }} />
         <h4 style={{ marginBottom: 8 }}>Backup</h4>
-        <a className="btn ghost" href={fileUrl('/admin/backup')}>⬇ Download data export (JSON)</a>
+        <a className="btn green" href={fileUrl('/admin/backup')}>⬇ Download full backend backup (JSON)</a>
         <div className="muted" style={{ marginTop: 8 }}>
-          Full database backups &amp; point-in-time restore are managed by Supabase
-          (Dashboard → Database → Backups). This export is an extra portable copy of your business data.
+          Downloads every table — branches, users, medicines, stock, bills, customers,
+          expenses — as one file. Database-level backups &amp; point-in-time restore are
+          also managed automatically by Supabase (Dashboard → Database → Backups).
         </div>
+        <FreshStart />
       </Card>
     </div>
+  );
+}
+
+function FreshStart() {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (user.role !== 'super_admin') return null;
+
+  const wipe = async () => {
+    setBusy(true);
+    try {
+      const r = await api('/admin/factory-reset', { method: 'POST', body: { password, confirm } });
+      toast(r.message, 'green');
+      setTimeout(() => window.location.assign('/'), 1200);
+    } catch (e) { toast(e.message, 'red'); }
+    setBusy(false);
+  };
+
+  return (
+    <>
+      <hr style={{ margin: '18px 0', border: 'none', borderTop: '1px solid var(--line)' }} />
+      <h4 style={{ marginBottom: 8, color: 'var(--red)' }}>Fresh start</h4>
+      <button className="btn red" onClick={() => setOpen(true)}>🗑 Delete ALL demo data — start fresh</button>
+      <div className="muted" style={{ marginTop: 8 }}>
+        Removes every auto-created record: sample branches, staff, medicines, stock,
+        bills, customers, suppliers, expenses. Keeps your owner login and settings.
+      </div>
+      {open && (
+        <Modal title="⚠ Delete ALL data?" onClose={() => setOpen(false)} footer={
+          <>
+            <button className="btn ghost" onClick={() => setOpen(false)}>Cancel</button>
+            <button className="btn red" disabled={busy || confirm !== 'DELETE' || !password} onClick={wipe}>
+              {busy ? 'Deleting…' : 'Yes, delete everything'}
+            </button>
+          </>
+        }>
+          <div className="err-msg">
+            This permanently deletes ALL branches, staff accounts, medicines, stock,
+            bills, customers, suppliers and expenses. It cannot be undone.
+            Download a backup first if you want to keep a copy.
+          </div>
+          <Field label="Your password" type="password" value={password} onChange={e => setPassword(e.target.value)} />
+          <Field label='Type DELETE to confirm' value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="DELETE" />
+        </Modal>
+      )}
+    </>
   );
 }
 

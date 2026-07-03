@@ -149,6 +149,42 @@ router.get('/audit-logs', requirePermission('audit.view', 'settings.manage'), wr
   res.json({ logs: rows });
 }));
 
+// ---------------- Factory reset: wipe demo/auto-created data ----------------
+// Deletes ALL business data (branches, medicines, sales, customers, ...) so the
+// shop can start fresh. Keeps: super admin accounts, role permissions, settings.
+router.post('/factory-reset', requirePermission('settings.manage'), wrap(async (req, res) => {
+  if (req.user.role !== 'super_admin') return res.status(403).json({ error: 'Only the owner can reset the system' });
+  const { password, confirm } = req.body || {};
+  if (confirm !== 'DELETE') return res.status(400).json({ error: 'Type DELETE in the confirmation box to proceed' });
+  const me = await get('SELECT * FROM users WHERE id = ?', req.user.id);
+  if (!bcrypt.compareSync(password || '', me.password_hash)) {
+    return res.status(400).json({ error: 'Your password is incorrect' });
+  }
+  const session = await get('SELECT * FROM sessions WHERE id = ?', req.sessionId);
+  await tx(async db => {
+    await db.run(`TRUNCATE return_items, returns, supplier_payments, payments, sale_items, sales,
+      purchase_return_items, purchase_returns, purchase_items, purchases,
+      stock_transfer_items, stock_transfers, stock_adjustments, stock_batches,
+      expenses, cash_closings, staff_attendance, tasks, notifications, audit_logs,
+      login_history, sessions, customers, medicines, suppliers
+      RESTART IDENTITY CASCADE`);
+    await db.run('UPDATE users SET branch_id = NULL');
+    await db.run(`DELETE FROM users WHERE role <> 'super_admin'`);
+    await db.run('DELETE FROM branches');
+    await db.run('ALTER TABLE branches ALTER COLUMN id RESTART WITH 1');
+    // Keep the owner logged in
+    if (session) {
+      await db.run('INSERT INTO sessions (id, user_id, ip, user_agent, device) VALUES (?,?,?,?,?)',
+        session.id, session.user_id, session.ip, session.user_agent, session.device);
+    }
+    // Stop the server from re-seeding demo data on next restart
+    await db.run(`INSERT INTO settings (key, value) VALUES ('demo_data_wiped', ?)
+      ON CONFLICT (key) DO UPDATE SET value = excluded.value`, JSON.stringify(new Date().toISOString()));
+  });
+  audit(req, 'factory_reset', 'settings', null, 'All demo/business data wiped for fresh start');
+  res.json({ ok: true, message: 'All data deleted. Add your real branches, staff and medicines to begin.' });
+}));
+
 // ---------------- Data export (JSON) ----------------
 // Database-level backups are managed by Supabase (Dashboard → Database → Backups).
 // This endpoint exports all business data as JSON for an extra, portable copy.
