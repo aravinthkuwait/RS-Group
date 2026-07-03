@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { all, get, run, insert, tx } from '../db.js';
 import { requirePermission, scopeBranch, writeBranch, canAccessBranch } from '../auth.js';
-import { audit, auditDiff, notify, checkStockAlerts, broadcast } from '../util.js';
+import { audit, auditDiff, notify, notifyStockUpdate, checkStockAlerts, broadcast } from '../util.js';
 
 const router = Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -166,6 +166,13 @@ router.post('/adjustments', requirePermission('inventory.adjust'), wrap(async (r
   });
   audit(req, 'stock_adjustment', 'stock_batches', batch_id, `${change} (${type}): ${reason}`);
   await checkStockAlerts(batch.medicine_id, batch.branch_id);
+  if (change > 0) {
+    const med = await get('SELECT name FROM medicines WHERE id = ?', batch.medicine_id);
+    await notifyStockUpdate({
+      branchId: batch.branch_id, kind: 'adjustment', byUser: req.user,
+      items: [{ medicine_id: batch.medicine_id, name: med?.name || '', batch_no: batch.batch_no, expiry_date: batch.expiry_date, qty_added: change }],
+    });
+  }
   broadcast('stock_changed', { medicine_id: batch.medicine_id, branch_id: batch.branch_id }, batch.branch_id);
   res.json({ ok: true });
 }));
@@ -254,6 +261,10 @@ router.post('/transfers/:id/receive', requirePermission('inventory.transfer'), w
     await db.run(`UPDATE stock_transfers SET status='completed', completed_by=?, completed_at=now() WHERE id=?`, req.user.id, t.id);
   });
   audit(req, 'receive', 'stock_transfers', t.id);
+  const received = await all(`SELECT ti.medicine_id, m.name, b.batch_no, b.expiry_date, ti.qty AS qty_added
+    FROM stock_transfer_items ti JOIN medicines m ON m.id = ti.medicine_id
+    JOIN stock_batches b ON b.id = ti.batch_id WHERE ti.transfer_id = ?`, t.id);
+  await notifyStockUpdate({ branchId: t.to_branch_id, kind: 'transfer', byUser: req.user, items: received });
   broadcast('stock_changed', { branch_id: t.to_branch_id }, t.to_branch_id);
   res.json({ ok: true });
 }));

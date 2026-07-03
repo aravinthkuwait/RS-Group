@@ -206,3 +206,20 @@ table.tbl td.num, table.tbl th.num { text-align: right; font-variant-numeric: ta
   .main { margin-left: 0; }
   .card { border: none; box-shadow: none; }
 }
+
+/* New-stock popup (real-time) */
+.stock-popup {
+  position: fixed; right: 20px; top: 74px; z-index: 95; width: 340px; max-width: calc(100vw - 32px);
+  background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--green);
+  border-radius: 12px; padding: 14px; box-shadow: 0 14px 40px rgba(22,44,74,.25);
+  animation: stockPopIn .25s ease-out;
+}
+@keyframes stockPopIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+.stock-popup .head { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.stock-popup .items { max-height: 220px; overflow-y: auto; }
+.stock-popup .items .row {
+  display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px;
+  border-radius: 8px; background: #f3f8f4; margin-bottom: 6px; font-size: .84rem;
+}
+.stock-popup .btns { display: flex; gap: 8px; margin-top: 10px; }
+.stock-popup .btns .btn { flex: 1; justify-content: center; }

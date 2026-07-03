@@ -65,6 +65,7 @@ function UserModal({ u, roles, branches, me, onClose, onSaved }) {
     name: u.name || '', email: u.email || '', phone: u.phone || '', role: u.role || 'billing_staff',
     branch_id: u.branch_id || '', password: '', active: u.active ?? 1,
     extra_branches: (() => { try { return JSON.parse(u.extra_branches || '[]'); } catch { return []; } })(),
+    max_discount_percent: u.max_discount_percent ?? '',
   });
   const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
   const toggleExtra = id => setF(x => ({
@@ -75,7 +76,10 @@ function UserModal({ u, roles, branches, me, onClose, onSaved }) {
   }));
   const save = async () => {
     try {
-      const body = { ...f, branch_id: f.branch_id ? Number(f.branch_id) : null, active: Number(f.active) };
+      const body = {
+        ...f, branch_id: f.branch_id ? Number(f.branch_id) : null, active: Number(f.active),
+        max_discount_percent: f.max_discount_percent === '' ? null : Number(f.max_discount_percent),
+      };
       if (!body.password) delete body.password;
       if (u.id) await api(`/admin/users/${u.id}`, { method: 'PUT', body });
       else await api('/admin/users', { method: 'POST', body });
@@ -134,7 +138,15 @@ function UserModal({ u, roles, branches, me, onClose, onSaved }) {
           </div>
         </Field>
       )}
-      <div className="muted">Role permissions can be customised in Settings → Role Permissions.</div>
+      <div className="form-row">
+        <Field label="Max discount % without approval (blank = default 10%)" type="number" min="0" max="100"
+          value={f.max_discount_percent} onChange={set('max_discount_percent')}
+          placeholder="e.g. 5" />
+      </div>
+      <div className="muted">
+        Discounts above this limit ask for manager approval at billing.
+        Role permissions can be customised in Settings → Role Permissions.
+      </div>
     </Modal>
   );
 }

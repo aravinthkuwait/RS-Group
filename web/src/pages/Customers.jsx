@@ -55,6 +55,7 @@ export default function Customers() {
             { key: 'name', label: 'Name', render: r => <a href="#" onClick={e => { e.preventDefault(); openProfile(r); }}><b>{r.name}</b></a> },
             { key: 'phone', label: 'Mobile' },
             { key: 'customer_type', label: 'Type', render: r => <Badge color={r.customer_type === 'business' ? 'orange' : 'gray'}>{r.customer_type || 'individual'}</Badge> },
+            { key: 'discount_percent', label: 'Disc %', render: r => Number(r.discount_percent) > 0 ? <Badge color="green">{r.discount_percent}%</Badge> : <span className="muted">—</span> },
             { key: 'branch_name', label: 'Branch' },
             { key: 'total_bills', label: 'Bills', num: true },
             { key: 'total_spent', label: 'Total spent', num: true, render: r => fmt(r.total_spent) },
@@ -125,12 +126,14 @@ function CustomerModal({ c, onClose, onSaved }) {
     name: c.name || '', phone: c.phone || '', email: c.email || '', address: c.address || '',
     dob: c.dob || '', credit_limit: c.credit_limit || 0, notes: c.notes || '',
     gstin: c.gstin || '', customer_type: c.customer_type || 'individual',
+    discount_percent: c.discount_percent || 0,
   });
   const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
   const save = async () => {
     try {
-      if (c.id) await api(`/customers/${c.id}`, { method: 'PUT', body: { ...f, credit_limit: Number(f.credit_limit) } });
-      else await api('/customers', { method: 'POST', body: { ...f, credit_limit: Number(f.credit_limit) } });
+      const body = { ...f, credit_limit: Number(f.credit_limit), discount_percent: Number(f.discount_percent) || 0 };
+      if (c.id) await api(`/customers/${c.id}`, { method: 'PUT', body });
+      else await api('/customers', { method: 'POST', body });
       toast('Customer saved', 'green'); onSaved();
     } catch (e) { toast(e.message, 'red'); }
   };
@@ -154,7 +157,11 @@ function CustomerModal({ c, onClose, onSaved }) {
       <div className="form-row">
         <Field label="Email" value={f.email} onChange={set('email')} />
         <Field label="Date of birth" type="date" value={f.dob || ''} onChange={set('dob')} />
+      </div>
+      <div className="form-row">
         <Field label="Credit limit (₹)" type="number" value={f.credit_limit} onChange={set('credit_limit')} />
+        <Field label="Special discount % (auto-offered at billing)" type="number" min="0" max="100"
+          value={f.discount_percent} onChange={set('discount_percent')} />
       </div>
       <Field label="Address" value={f.address} onChange={set('address')} />
       <Field label="Notes" value={f.notes} onChange={set('notes')} />

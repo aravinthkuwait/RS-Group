@@ -14,7 +14,7 @@ export async function runSeed({ force = false } = {}) {
   console.log('Seeding RS Group sample data...');
 
   await tx(async db => {
-    await db.run(`TRUNCATE return_items, returns, supplier_payments, payments, sale_items, sales,
+    await db.run(`TRUNCATE return_items, returns, supplier_payments, payments, sale_items, sales, promotions,
       purchase_return_items, purchase_returns, purchase_items, purchases,
       stock_transfer_items, stock_transfers, stock_adjustments, stock_batches,
       expenses, cash_closings, staff_attendance, tasks, notifications, audit_logs,
@@ -89,6 +89,8 @@ export async function runSeed({ force = false } = {}) {
       userIds.push(await db.insert(`INSERT INTO users (name, email, phone, password_hash, role, branch_id)
         VALUES (?,?,?,?,?,?)`, u[0], u[1], u[2], hash, u[3], u[4]));
     }
+    // Billing staff may discount up to 5% on their own; beyond that needs manager approval
+    await db.run(`UPDATE users SET max_discount_percent = 5 WHERE role = 'billing_staff'`);
     const billingStaff = { [branchIds[0]]: userIds[4], [branchIds[1]]: userIds[5], [branchIds[2]]: userIds[6] };
 
     // ---------- Suppliers (10) ----------
@@ -226,15 +228,25 @@ export async function runSeed({ force = false } = {}) {
     const firstNames = ['Ravi', 'Sita', 'Kumar', 'Anjali', 'Vijay', 'Deepa', 'Mohan', 'Fatima', 'Senthil', 'Rekha', 'Ibrahim', 'Janaki', 'Prakash', 'Nithya', 'Saravanan', 'Kala', 'David', 'Uma', 'Rajesh', 'Bhavani', 'Mani', 'Shalini', 'Gopal', 'Radha'];
     const customerIds = [];
     for (let i = 0; i < firstNames.length; i++) {
-      customerIds.push(await db.insert(`INSERT INTO customers (branch_id, name, phone, email, address, loyalty_points, credit_limit, gstin, customer_type)
-        VALUES (?,?,?,'',?,?,?,?,?)`,
+      customerIds.push(await db.insert(`INSERT INTO customers (branch_id, name, phone, email, address, loyalty_points, credit_limit, gstin, customer_type, discount_percent)
+        VALUES (?,?,?,'',?,?,?,?,?,?)`,
         branchIds[i % 3], `${firstNames[i]} ${pick(['S', 'K', 'M', 'R', 'V'])}`,
         `+91 9${String(500000000 + i * 1237913).slice(0, 9)}`,
         pick(['Anna Nagar', 'KK Nagar', 'Gandhi Street', 'Bazaar Road', 'Lake View Colony']),
         randInt(0, 250), i % 5 === 0 ? 5000 : 0,
         i % 5 === 0 ? `33AACC${String(1000 + i)}X1Z${i % 10}` : '',
-        i % 5 === 0 ? 'business' : 'individual'));
+        i % 5 === 0 ? 'business' : 'individual',
+        i % 6 === 0 ? 5 : 0)); // every 6th customer has a 5% special discount
     }
+
+    // ---------- Promotional discount schemes ----------
+    const promo = (name, desc, branchId, type, value, appliesTo, category, minBill, fromOff, toOff) =>
+      db.run(`INSERT INTO promotions (name, description, branch_id, discount_type, discount_value, applies_to, category, min_bill_amount, from_date, to_date, created_by)
+        VALUES (?,?,?,?,?,?,?,?, CURRENT_DATE + (?::int), CURRENT_DATE + (?::int), ?)`,
+        name, desc, branchId, type, value, appliesTo, category, minBill, fromOff, toOff, userIds[0]);
+    await promo('Monsoon Health Offer', '10% off bills above ₹500 (all branches)', null, 'percent', 10, 'all', '', 500, -7, 30);
+    await promo('Wellness Week', '15% off all Wellness products', branchIds[0], 'percent', 15, 'category', 'Wellness', 0, -7, 14);
+    await promo('Republic Day Offer (over)', 'Flat ₹50 off — validity ended', null, 'amount', 50, 'all', '', 300, -30, -1);
 
     // ---------- Sales (100 bills over last 30 days) ----------
     const branchCodes = { [branchIds[0]]: 'RSG-CHN', [branchIds[1]]: 'RSG-MDU', [branchIds[2]]: 'RSG-CBE' };
@@ -281,11 +293,12 @@ export async function runSeed({ force = false } = {}) {
       else if (payMode < 0.85) upi = total;
       else card = total;
 
-      const saleId = await db.insert(`INSERT INTO sales (invoice_no, branch_id, customer_id, staff_id, subtotal, discount, gst_amount, round_off, total, paid_cash, paid_upi, paid_card, credit_amount, status, doctor_name, created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'completed',?,?)`,
+      const saleId = await db.insert(`INSERT INTO sales (invoice_no, branch_id, customer_id, staff_id, subtotal, discount, gst_amount, round_off, total, paid_cash, paid_upi, paid_card, credit_amount, status, doctor_name, created_at, discount_type, discount_value)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'completed',?,?,?,?)`,
         invoiceNo, branchId, customerId, staffId,
         round2(subtotal), discount, round2(gstTotal), roundOff, total,
-        cash, upi, card, credit, pick(doctors), createdAt);
+        cash, upi, card, credit, pick(doctors), createdAt,
+        discount > 0 ? 'percent' : 'none', discount > 0 ? 5 : 0);
 
       for (const it of items) {
         await db.run(`INSERT INTO sale_items (sale_id, medicine_id, batch_id, batch_no, qty, mrp, price, purchase_price, gst_rate, gst_amount, discount, total)

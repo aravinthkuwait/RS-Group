@@ -56,7 +56,7 @@ router.delete('/branches/:id', requirePermission('branches.manage'), wrap(async 
 // ---------------- Users ----------------
 router.get('/users', requirePermission('staff.manage', 'tasks.manage'), wrap(async (req, res) => {
   let rows = await all(`SELECT u.id, u.name, u.email, u.phone, u.role, u.branch_id, u.active, u.created_at,
-    u.extra_permissions, u.denied_permissions, b.name AS branch_name
+    u.extra_permissions, u.denied_permissions, u.extra_branches, u.max_discount_percent, b.name AS branch_name
     FROM users u LEFT JOIN branches b ON b.id = u.branch_id ORDER BY u.id`);
   if (!['super_admin', 'auditor'].includes(req.user.role)) {
     rows = rows.filter(u => u.branch_id === req.user.branch_id);
@@ -65,7 +65,7 @@ router.get('/users', requirePermission('staff.manage', 'tasks.manage'), wrap(asy
 }));
 
 router.post('/users', requirePermission('staff.manage'), wrap(async (req, res) => {
-  const { name, email, phone = '', password, role, branch_id, extra_branches = [] } = req.body || {};
+  const { name, email, phone = '', password, role, branch_id, extra_branches = [], max_discount_percent = null } = req.body || {};
   if (!name || !email || !password || !role) return res.status(400).json({ error: 'Name, email, password and role are required' });
   if (!ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (role === 'super_admin' && req.user.role !== 'super_admin') return res.status(403).json({ error: 'Only the owner can create super admin accounts' });
@@ -74,8 +74,9 @@ router.post('/users', requirePermission('staff.manage'), wrap(async (req, res) =
     ? [...new Set((extra_branches || []).map(Number).filter(b => b && b !== Number(bid)))]
     : [];
   try {
-    const id = await insert(`INSERT INTO users (name, email, phone, password_hash, role, branch_id, extra_branches)
-      VALUES (?,?,?,?,?,?,?)`, name.trim(), email.trim().toLowerCase(), phone, bcrypt.hashSync(password, 10), role, bid, JSON.stringify(extras));
+    const id = await insert(`INSERT INTO users (name, email, phone, password_hash, role, branch_id, extra_branches, max_discount_percent)
+      VALUES (?,?,?,?,?,?,?,?)`, name.trim(), email.trim().toLowerCase(), phone, bcrypt.hashSync(password, 10), role, bid, JSON.stringify(extras),
+      max_discount_percent === null || max_discount_percent === '' ? null : Number(max_discount_percent));
     audit(req, 'create', 'users', id, `${name} (${role})`);
     res.json({ id });
   } catch (e) {
@@ -106,14 +107,19 @@ router.put('/users/:id', requirePermission('staff.manage'), wrap(async (req, res
     denied_permissions ? JSON.stringify(denied_permissions) : null,
     extras,
     req.params.id);
+  if ('max_discount_percent' in (req.body || {})) {
+    const v = req.body.max_discount_percent;
+    await run('UPDATE users SET max_discount_percent = ? WHERE id = ?',
+      v === null || v === '' ? null : Number(v), req.params.id);
+  }
   if (password) {
     await run('UPDATE users SET password_hash = ? WHERE id = ?', bcrypt.hashSync(password, 10), req.params.id);
     await run('UPDATE sessions SET revoked = 1 WHERE user_id = ?', req.params.id);
   }
   if (active === 0) await run('UPDATE sessions SET revoked = 1 WHERE user_id = ?', req.params.id);
   auditDiff(req, 'users', Number(req.params.id), target,
-    { name, phone, role, branch_id, active, extra_branches: extras },
-    ['name', 'phone', 'role', 'branch_id', 'active', 'extra_branches']);
+    { name, phone, role, branch_id, active, extra_branches: extras, max_discount_percent: req.body?.max_discount_percent },
+    ['name', 'phone', 'role', 'branch_id', 'active', 'extra_branches', 'max_discount_percent']);
   res.json({ ok: true });
 }));
 
@@ -206,7 +212,7 @@ router.post('/factory-reset', requirePermission('settings.manage'), wrap(async (
   }
   const session = await get('SELECT * FROM sessions WHERE id = ?', req.sessionId);
   await tx(async db => {
-    await db.run(`TRUNCATE return_items, returns, supplier_payments, payments, sale_items, sales,
+    await db.run(`TRUNCATE return_items, returns, supplier_payments, payments, sale_items, sales, promotions,
       purchase_return_items, purchase_returns, purchase_items, purchases,
       stock_transfer_items, stock_transfers, stock_adjustments, stock_batches,
       expenses, cash_closings, staff_attendance, tasks, notifications, audit_logs,

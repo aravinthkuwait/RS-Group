@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { all, get, run } from '../db.js';
-import { authenticate, signToken, permissionsForUser, allowedBranchIds } from '../auth.js';
+import { authenticate, signToken, permissionsForUser, allowedBranchIds, discountLimit } from '../auth.js';
 import { audit } from '../util.js';
 
 const router = Router();
@@ -50,7 +50,7 @@ router.post('/login', wrap(async (req, res) => {
     : [];
   const perms = await permissionsForUser(user);
   delete user.password_hash; delete user.reset_token; delete user.reset_token_expires;
-  res.json({ token, user: { ...user, perms, branch, branches } });
+  res.json({ token, user: { ...user, perms, branch, branches, discount_limit: discountLimit({ ...user, perms }) } });
 }));
 
 router.post('/forgot-password', wrap(async (req, res) => {
@@ -87,7 +87,7 @@ router.get('/me', wrap(async (req, res) => {
   const branches = allowed
     ? await all(`SELECT id, code, name FROM branches WHERE active = 1 AND id IN (${allowed.map(Number).join(',') || 0}) ORDER BY id`)
     : [];
-  res.json({ user: { ...req.user, branch, branches } });
+  res.json({ user: { ...req.user, branch, branches, discount_limit: discountLimit(req.user) } });
 }));
 
 router.post('/change-password', wrap(async (req, res) => {

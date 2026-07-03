@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { pool, get, run, initSchema } from './db.js';
-import { authenticate } from './auth.js';
+import { authenticate, DEFAULT_ROLE_PERMISSIONS } from './auth.js';
 import { runSeed } from './seed.js';
 import authRoutes from './routes/auth.js';
 import adminRoutes from './routes/admin.js';
@@ -15,6 +15,7 @@ import customerRoutes from './routes/customers.js';
 import accountsRoutes from './routes/accounts.js';
 import reportsRoutes from './routes/reports.js';
 import staffRoutes from './routes/staff.js';
+import promotionRoutes from './routes/promotions.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -36,6 +37,17 @@ let dbError = '';
 for (let attempt = 1; attempt <= 12 && !dbReady; attempt++) {
   try {
     await initSchema();
+    // Backfill newly introduced permission keys on existing databases without
+    // overriding the owner's edits to the role matrix: only keys the table has
+    // never seen are added, with their default role assignments.
+    const { rows: seen } = await pool.query('SELECT DISTINCT permission FROM permissions');
+    const seenKeys = new Set(seen.map(r => r.permission));
+    for (const [role, perms] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+      if (role === 'super_admin') continue;
+      for (const p of perms.filter(p => !seenKeys.has(p))) {
+        await pool.query(`INSERT INTO permissions (role, permission) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [role, p]);
+      }
+    }
     dbReady = true;
     console.log('Database connected and schema verified.');
   } catch (e) {
@@ -76,6 +88,7 @@ app.use('/api/customers', authenticate, customerRoutes);
 app.use('/api/accounts', authenticate, accountsRoutes);
 app.use('/api/reports', authenticate, reportsRoutes);
 app.use('/api/staff', authenticate, staffRoutes);
+app.use('/api/promotions', authenticate, promotionRoutes);
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'API endpoint not found' }));
 

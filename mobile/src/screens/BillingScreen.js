@@ -2,21 +2,38 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, Modal, ScrollView } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { api, fmt } from '../api';
-import { useBranch } from '../../App';
+import { useAuth, useBranch, can } from '../../App';
 import { colors, shadow } from '../theme';
-import { BranchBar } from '../ui';
+import { Field, Chips, Btn, BranchBar } from '../ui';
 
 export default function BillingScreen() {
+  const { user } = useAuth();
   const { branchId } = useBranch();
   const [q, setQ] = useState('');
   const [results, setResults] = useState([]);
   const [cart, setCart] = useState([]);
   const [phone, setPhone] = useState('');
+  const [customer, setCustomer] = useState(null); // matched profile (special discount)
   const [payMode, setPayMode] = useState('cash');
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [discOpen, setDiscOpen] = useState(false);
+  const [discType, setDiscType] = useState('none'); // none | percent | amount | customer | promo
+  const [discValue, setDiscValue] = useState('');
+  const [promoId, setPromoId] = useState(null);
+  const [promos, setPromos] = useState([]);
+  const [approval, setApproval] = useState(null); // {message, email, password}
   const [permission, requestPermission] = useCameraPermissions();
   const debounce = useRef(null);
+  const custDebounce = useRef(null);
+
+  const canDiscount = can(user, 'billing.discount');
+  const limit = user.discount_limit ?? 10;
+
+  useEffect(() => {
+    api('/promotions/active', { params: { branch_id: branchId } })
+      .then(d => setPromos(d.promotions)).catch(() => {});
+  }, [branchId]);
 
   useEffect(() => {
     clearTimeout(debounce.current);
@@ -27,11 +44,27 @@ export default function BillingScreen() {
     }, 200);
   }, [q, branchId]);
 
+  // Look up customer profile by phone for their special discount
+  useEffect(() => {
+    clearTimeout(custDebounce.current);
+    if (phone.trim().length < 6) { setCustomer(null); return; }
+    custDebounce.current = setTimeout(() => {
+      api('/customers', { params: { q: phone.trim(), limit: 5 } }).then(d => {
+        const m = d.customers.find(c => c.phone.replace(/\s+/g, '').endsWith(phone.replace(/\s+/g, '').slice(-10)));
+        setCustomer(m || null);
+        if (!m && discType === 'customer') setDiscType('none');
+      }).catch(() => {});
+    }, 300);
+  }, [phone]);
+
   const add = r => {
     setCart(c => {
       const ex = c.find(i => i.batch_id === r.batch_id);
       if (ex) return c.map(i => i.batch_id === r.batch_id ? { ...i, qty: Math.min(i.qty + 1, r.qty) } : i);
-      return [...c, { batch_id: r.batch_id, name: r.name, price: r.selling_price, qty: 1, stock: r.qty, batch_no: r.batch_no }];
+      return [...c, {
+        batch_id: r.batch_id, medicine_id: r.id, name: r.name, price: r.selling_price,
+        qty: 1, stock: r.qty, batch_no: r.batch_no, category: r.category, gst_rate: r.gst_rate,
+      }];
     });
     setQ(''); setResults([]);
   };
@@ -52,9 +85,33 @@ export default function BillingScreen() {
     setScanning(true);
   };
 
-  const total = Math.round(cart.reduce((a, i) => a + i.qty * i.price, 0));
+  // ---- Totals with discount ----
+  const gross = cart.reduce((a, i) => a + i.qty * i.price, 0);
+  const selectedPromo = promos.find(p => p.id === promoId);
+  let billDisc = 0;
+  if (discType === 'percent') billDisc = Math.min(gross * (Number(discValue) || 0) / 100, gross);
+  else if (discType === 'amount') billDisc = Math.min(Number(discValue) || 0, gross);
+  else if (discType === 'customer') billDisc = gross * (Number(customer?.discount_percent) || 0) / 100;
+  else if (discType === 'promo' && selectedPromo) {
+    const p = selectedPromo;
+    const base = p.applies_to === 'all' ? gross
+      : cart.reduce((a, i) => a + ((p.applies_to === 'category' ? i.category === p.category : i.medicine_id === p.medicine_id) ? i.qty * i.price : 0), 0);
+    if (gross >= (p.min_bill_amount || 0) && base > 0) {
+      billDisc = p.discount_type === 'percent' ? base * p.discount_value / 100 : Math.min(p.discount_value, base);
+    }
+  }
+  const total = Math.round(gross - billDisc);
+  const discountPct = gross > 0 ? (billDisc / gross) * 100 : 0;
+  // Offers/customer discounts are admin-configured — only manual %/₹ counts against the user limit
+  const overLimit = ['percent', 'amount'].includes(discType) && discountPct > limit + 0.01;
 
-  const save = async () => {
+  const discLabel = discType === 'none' ? 'No discount'
+    : discType === 'percent' ? `${discValue || 0}% off`
+    : discType === 'amount' ? `₹${discValue || 0} off`
+    : discType === 'customer' ? `Customer ${customer?.discount_percent || 0}%`
+    : selectedPromo ? `Offer: ${selectedPromo.name}` : 'Offer';
+
+  const save = async (approvalCreds = null) => {
     if (!cart.length) return;
     setBusy(true);
     try {
@@ -63,13 +120,21 @@ export default function BillingScreen() {
         body: {
           branch_id: branchId || undefined,
           items: cart.map(i => ({ batch_id: i.batch_id, qty: i.qty })),
+          customer_id: customer?.id || undefined,
           customer_phone: phone || undefined,
+          discount: { type: billDisc > 0 ? discType : 'none', value: Number(discValue) || 0, promo_id: promoId },
           payment: { cash: 0, upi: 0, card: 0, credit: 0, [payMode]: total },
+          approval: approvalCreds || undefined,
         },
       });
-      Alert.alert('Bill saved ✓', `${d.invoice_no}\nTotal ${fmt(d.total)}`);
-      setCart([]); setPhone('');
-    } catch (e) { Alert.alert('Could not save bill', e.message); }
+      const saved = (d.sale?.discount || 0) + (d.sale?.item_discount || 0);
+      Alert.alert('Bill saved ✓', `${d.invoice_no}\nTotal ${fmt(d.total)}${saved > 0 ? `\nCustomer saved ${fmt(saved)} 🎉` : ''}`);
+      setCart([]); setPhone(''); setCustomer(null);
+      setDiscType('none'); setDiscValue(''); setPromoId(null); setApproval(null);
+    } catch (e) {
+      if (e.approval_required) setApproval({ message: e.message, email: '', password: '' });
+      else Alert.alert('Could not save bill', e.message);
+    }
     setBusy(false);
   };
 
@@ -124,8 +189,29 @@ export default function BillingScreen() {
       />
 
       <View style={[{ backgroundColor: '#fff', borderRadius: 12, padding: 12 }, shadow]}>
-        <TextInput style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 8, padding: 10, marginBottom: 8 }}
+        <TextInput style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 8, padding: 10, marginBottom: 6 }}
           placeholder="Customer mobile (optional)" keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
+        {customer && (
+          <Text style={{ color: colors.green, fontSize: 12, marginBottom: 6 }}>
+            {customer.name}{Number(customer.discount_percent) > 0 ? ` · special discount ${customer.discount_percent}%` : ''}
+          </Text>
+        )}
+        {canDiscount && (
+          <TouchableOpacity onPress={() => setDiscOpen(true)}
+            style={{ borderWidth: 1, borderColor: billDisc > 0 ? colors.green : colors.line, borderRadius: 8, padding: 10, marginBottom: 8, backgroundColor: billDisc > 0 ? colors.greenLight : '#fff' }}>
+            <Text style={{ fontWeight: '700', color: billDisc > 0 ? colors.green : colors.ink2 }}>
+              💸 {discLabel}{billDisc > 0 ? ` · saves ${fmt(billDisc)}` : ' — tap to add discount'}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {billDisc > 0 && (
+          <View style={{ marginBottom: 6 }}>
+            <Text style={{ color: colors.ink3, fontSize: 12 }}>Gross {fmt(gross)} − Discount {fmt(billDisc)} ({discountPct.toFixed(1)}%)</Text>
+            {overLimit && (
+              <Text style={{ color: colors.orange, fontSize: 12, fontWeight: '700' }}>Above your {limit}% limit — manager approval will be asked</Text>
+            )}
+          </View>
+        )}
         <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
           {['cash', 'upi', 'card'].map(m => (
             <TouchableOpacity key={m} onPress={() => setPayMode(m)}
@@ -134,13 +220,64 @@ export default function BillingScreen() {
             </TouchableOpacity>
           ))}
         </View>
-        <TouchableOpacity onPress={save} disabled={busy || !cart.length}
+        <TouchableOpacity onPress={() => save()} disabled={busy || !cart.length}
           style={{ backgroundColor: colors.green, borderRadius: 10, padding: 14, opacity: cart.length ? 1 : 0.5 }}>
           <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '800', fontSize: 16 }}>
             💾 Save Bill — {fmt(total)}
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* Discount picker */}
+      <Modal visible={discOpen} animationType="slide" transparent>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,.4)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 16, maxHeight: '80%' }}>
+            <Text style={{ fontWeight: '800', fontSize: 16, marginBottom: 10 }}>💸 Discount (your limit {limit}%)</Text>
+            <ScrollView>
+              <Chips value={discType} onChange={t => { setDiscType(t); if (t === 'none') { setDiscValue(''); setPromoId(null); } }}
+                options={[
+                  { value: 'none', label: 'No Discount' },
+                  { value: 'percent', label: 'Percentage %' },
+                  { value: 'amount', label: 'Fixed ₹' },
+                  ...(customer && Number(customer.discount_percent) > 0 ? [{ value: 'customer', label: `Customer ${customer.discount_percent}%` }] : []),
+                  ...(promos.length ? [{ value: 'promo', label: '🏷️ Offer' }] : []),
+                ]} />
+              {(discType === 'percent' || discType === 'amount') && (
+                <Field label={discType === 'percent' ? 'Discount %' : 'Discount amount ₹'} keyboardType="numeric"
+                  value={String(discValue)} onChangeText={setDiscValue} />
+              )}
+              {discType === 'promo' && (
+                <Chips label="Choose offer" value={promoId} onChange={setPromoId}
+                  options={promos.map(p => ({
+                    value: p.id,
+                    label: `${p.name} (${p.discount_type === 'percent' ? p.discount_value + '%' : '₹' + p.discount_value}${p.min_bill_amount > 0 ? `, min ₹${p.min_bill_amount}` : ''})`,
+                  }))} />
+              )}
+              <Text style={{ color: colors.ink2, marginBottom: 10 }}>
+                Gross {fmt(gross)} − {fmt(billDisc)} = <Text style={{ fontWeight: '800' }}>{fmt(total)}</Text>
+              </Text>
+              <Btn title="Apply Discount" color={colors.green} onPress={() => setDiscOpen(false)} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Manager approval when over the limit */}
+      <Modal visible={!!approval} animationType="fade" transparent>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,.5)', justifyContent: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 14, padding: 16 }}>
+            <Text style={{ fontWeight: '800', fontSize: 16, marginBottom: 6 }}>Manager approval required</Text>
+            <Text style={{ color: colors.red, marginBottom: 10 }}>{approval?.message}</Text>
+            <Field label="Manager email" autoCapitalize="none" keyboardType="email-address"
+              value={approval?.email || ''} onChangeText={v => setApproval(a => ({ ...a, email: v }))} />
+            <Field label="Manager password" secureTextEntry
+              value={approval?.password || ''} onChangeText={v => setApproval(a => ({ ...a, password: v }))} />
+            <Btn title={busy ? 'Saving…' : '✓ Approve & Save Bill'} color={colors.green} disabled={busy || !approval?.email || !approval?.password}
+              onPress={() => save({ email: approval.email, password: approval.password })} />
+            <Btn title="Cancel" color={colors.ink3} onPress={() => setApproval(null)} />
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={scanning} animationType="slide">
         <View style={{ flex: 1, backgroundColor: '#000' }}>

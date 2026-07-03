@@ -1,4 +1,5 @@
 import { all, get, run, insert } from './db.js';
+import { allowedBranchIds } from './auth.js';
 
 // ---------- Audit log ----------
 export function audit(req, action, entity = '', entityId = null, details = '') {
@@ -40,14 +41,18 @@ export function sseHandler(req, res) {
 function relevantTo(user, n) {
   if (n.user_id) return n.user_id === user.id;
   if (n.role && n.role !== user.role) return false;
-  if (n.branch_id && !['super_admin', 'auditor'].includes(user.role) && user.branch_id !== n.branch_id) return false;
+  if (n.branch_id) {
+    const allowed = allowedBranchIds(user); // null = all branches
+    if (allowed && !allowed.includes(Number(n.branch_id))) return false;
+  }
   return true;
 }
 
-export async function notify({ branch_id = null, user_id = null, role = null, type = 'info', title, message = '' }) {
-  const id = await insert(`INSERT INTO notifications (branch_id, user_id, role, type, title, message)
-                           VALUES (?,?,?,?,?,?)`, branch_id, user_id, role, type, title, message);
-  const n = { id, branch_id, user_id, role, type, title, message };
+export async function notify({ branch_id = null, user_id = null, role = null, type = 'info', title, message = '', data = null }) {
+  const id = await insert(`INSERT INTO notifications (branch_id, user_id, role, type, title, message, data)
+                           VALUES (?,?,?,?,?,?,?)`, branch_id, user_id, role, type, title, message,
+    data ? JSON.stringify(data) : null);
+  const n = { id, branch_id, user_id, role, type, title, message, data };
   for (const client of sseClients) {
     if (relevantTo(client.user, n)) {
       client.res.write(`event: notification\ndata: ${JSON.stringify(n)}\n\n`);
@@ -58,9 +63,41 @@ export async function notify({ branch_id = null, user_id = null, role = null, ty
 
 export function broadcast(event, data, branch_id = null) {
   for (const client of sseClients) {
-    if (branch_id && !['super_admin', 'auditor'].includes(client.user.role) && client.user.branch_id !== branch_id) continue;
+    if (branch_id) {
+      const allowed = allowedBranchIds(client.user);
+      if (allowed && !allowed.includes(Number(branch_id))) continue;
+    }
     client.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   }
+}
+
+// Stock update popup: one notification per stock-in event (purchase entry,
+// transfer received, positive adjustment) with full item details so branch
+// users instantly see what is newly available for billing.
+export async function notifyStockUpdate({ branchId, kind, byUser, items }) {
+  if (!items?.length) return;
+  const branch = await get('SELECT name FROM branches WHERE id = ?', branchId);
+  const enriched = [];
+  for (const it of items) {
+    const newQty = await branchStock(it.medicine_id, branchId);
+    enriched.push({
+      name: it.name, batch_no: it.batch_no, expiry_date: it.expiry_date,
+      qty_added: it.qty_added, new_qty: newQty,
+    });
+  }
+  const kindLabel = { purchase: 'Purchase entry', transfer: 'Stock transfer received', adjustment: 'Stock adjustment' }[kind] || 'Stock update';
+  const first = enriched[0];
+  await notify({
+    branch_id: branchId,
+    type: 'stock_update',
+    title: `New stock: ${first.name}${enriched.length > 1 ? ` +${enriched.length - 1} more` : ''}`,
+    message: `${kindLabel} — ${enriched.map(i => `${i.name} +${i.qty_added}`).join(', ').slice(0, 200)}`,
+    data: {
+      kind, branch_id: branchId, branch_name: branch?.name || '',
+      updated_by: byUser?.name || '', at: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      items: enriched.slice(0, 20),
+    },
+  });
 }
 
 // ---------- Invoice numbering ----------

@@ -107,30 +107,53 @@ export async function invoicePdf(res, sale, items, branch, customer, staff, prin
   }
   doc.moveTo(40, gy + 1).lineTo(340, gy + 1).lineWidth(0.5).strokeColor('#cccccc').stroke();
 
-  // Totals
-  const savings = round2(items.reduce((a, it) => a + (it.mrp - it.price) * it.qty, 0) + sale.discount);
+  // Totals — gross, discounts, taxable, GST, net payable, paid, balance
+  const itemDisc = round2(sale.item_discount || 0);
+  const grossAmount = round2(sale.subtotal + itemDisc);
+  const billDiscount = round2(sale.discount || 0);
+  const totalDiscount = round2(itemDisc + billDiscount);
+  const discountSavings = round2(items.reduce((a, it) => a + (it.mrp - it.price) * it.qty, 0) + totalDiscount);
+  const paid = round2(sale.paid_cash + sale.paid_upi + sale.paid_card);
+  const balance = round2(sale.credit_amount || 0);
+  const discountLabel = sale.discount_type === 'promo' && sale.promo_name ? `Offer: ${sale.promo_name}`
+    : sale.discount_type === 'customer' ? `Customer Discount (${Number(sale.discount_value)}%)`
+    : sale.discount_type === 'percent' ? `Discount (${Number(sale.discount_value)}%)`
+    : 'Discount';
   const totals = [
-    ['Subtotal', rupee(sale.subtotal)],
-    ['Discount', `- ${rupee(sale.discount)}`],
+    ['Gross Amount', rupee(grossAmount)],
+    ...(itemDisc > 0 ? [['Item Discounts', `- ${rupee(itemDisc)}`]] : []),
+    ...(billDiscount > 0 || sale.discount_type !== 'none' ? [[discountLabel, `- ${rupee(billDiscount)}`]] : []),
+    ['Taxable Amount', rupee(round2(sale.subtotal - billDiscount - sale.gst_amount))],
     ['GST (included)', rupee(sale.gst_amount)],
     ['Round Off', rupee(sale.round_off)],
   ];
   totals.forEach(([label, val]) => {
-    doc.font('Helvetica').fontSize(9).fillColor(GREY).text(label, 380, y, { width: 100, align: 'right' });
+    doc.font('Helvetica').fontSize(9).fillColor(GREY).text(label, 360, y, { width: 120, align: 'right' });
     doc.fillColor('#000').text(val, 480, y, { width: 72, align: 'right' });
     y += 13;
   });
   doc.rect(370, y, 185, 20).fill(GREEN);
   doc.fillColor('#fff').font('Helvetica-Bold').fontSize(11)
-    .text('TOTAL', 380, y + 5, { width: 100, align: 'right' })
+    .text('NET PAYABLE', 380, y + 5, { width: 100, align: 'right' })
     .text(rupee(sale.total), 480, y + 5, { width: 70, align: 'right' });
-  y += 26;
+  y += 24;
+  doc.font('Helvetica').fontSize(8.5).fillColor(GREY)
+    .text('Paid Amount', 360, y, { width: 120, align: 'right' }).fillColor('#000').text(rupee(paid), 480, y, { width: 72, align: 'right' });
+  y += 12;
+  doc.fillColor(GREY).text('Balance (Credit)', 360, y, { width: 120, align: 'right' })
+    .fillColor(balance > 0 ? ORANGE : '#000').text(rupee(balance), 480, y, { width: 72, align: 'right' });
+  y += 14;
   y = Math.max(y, gy + 12);
   const pays = [['Cash', sale.paid_cash], ['UPI', sale.paid_upi], ['Card', sale.paid_card], ['Credit', sale.credit_amount]]
     .filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${rupee(v)}`).join('    ');
   doc.font('Helvetica').fontSize(8.5).fillColor(GREY).text(`Payment - ${pays || 'N/A'}`, 40, y);
-  if (invoiceCfg.show_savings && savings > 0) {
-    doc.fillColor(ORANGE).font('Helvetica-Bold').text(`You saved ${rupee(savings)} on this bill!`, 40, y + 14);
+  if (sale.discount_approved_by_name) {
+    doc.text(`Discount approved by ${sale.discount_approved_by_name}`, 40, y + 12);
+    y += 12;
+  }
+  if (discountSavings > 0) {
+    doc.fillColor(ORANGE).font('Helvetica-Bold').fontSize(9.5)
+      .text(`You saved ${rupee(discountSavings)} on this purchase!`, 40, y + 14);
   }
   y += 34;
   doc.font('Helvetica').fontSize(7.5).fillColor(GREY)

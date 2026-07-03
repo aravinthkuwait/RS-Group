@@ -108,8 +108,19 @@ export default function Sales() {
             rows={view.items}
           />
           <div className="right" style={{ marginTop: 12, lineHeight: 1.8 }}>
-            <div className="muted">Subtotal: {fmt(view.subtotal)} · Discount: {fmt(view.discount)} · GST incl.: {fmt(view.gst_amount)}</div>
-            <div style={{ fontSize: '1.2rem' }}><b>Total: {fmt(view.total)}</b></div>
+            <div className="muted">
+              Gross: {fmt((view.subtotal || 0) + (view.item_discount || 0))}
+              {(view.item_discount > 0) && <> · Item discounts: −{fmt(view.item_discount)}</>}
+              {(view.discount > 0) && <> · {view.discount_type === 'promo' && view.promo_name ? `Offer "${view.promo_name}"` : view.discount_type === 'customer' ? `Customer discount (${view.discount_value}%)` : view.discount_type === 'percent' ? `Discount (${view.discount_value}%)` : 'Discount'}: −{fmt(view.discount)}</>}
+              {' '}· Taxable: {fmt((view.subtotal || 0) - (view.discount || 0) - (view.gst_amount || 0))} · GST incl.: {fmt(view.gst_amount)}
+            </div>
+            {(view.discount > 0 || view.item_discount > 0) && (
+              <div style={{ color: 'var(--orange, #e07b1f)', fontWeight: 600 }}>
+                Saved {fmt((view.discount || 0) + (view.item_discount || 0))}
+                {view.discount_approved_by_name && <span className="muted" style={{ fontWeight: 400 }}> · approved by {view.discount_approved_by_name}</span>}
+              </div>
+            )}
+            <div style={{ fontSize: '1.2rem' }}><b>Net Payable: {fmt(view.total)}</b></div>
             <div className="muted">
               {[view.paid_cash > 0 && `Cash ${fmt(view.paid_cash)}`, view.paid_upi > 0 && `UPI ${fmt(view.paid_upi)}`,
                 view.paid_card > 0 && `Card ${fmt(view.paid_card)}`, view.credit_amount > 0 && `Credit ${fmt(view.credit_amount)}`]

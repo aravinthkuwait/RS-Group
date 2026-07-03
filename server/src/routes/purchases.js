@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { all, get, run, insert, tx } from '../db.js';
 import { requirePermission, scopeBranch, writeBranch } from '../auth.js';
-import { audit, auditDiff, notify, round2, supplierBalance, today } from '../util.js';
+import { audit, auditDiff, notify, notifyStockUpdate, broadcast, round2, supplierBalance, today } from '../util.js';
 
 const router = Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -104,6 +104,7 @@ router.post('/', requirePermission('purchases.manage'), wrap(async (req, res) =>
   if (invoice_file && invoice_file.length > 2_000_000) return res.status(400).json({ error: 'Invoice file too large (max ~1.5MB)' });
 
   try {
+    const stockItems = [];
     const { pid, total, paid } = await tx(async db => {
       let subtotal = 0, gstAmt = 0;
       const pid = await db.insert(`INSERT INTO purchases (branch_id, supplier_id, invoice_no, invoice_date, invoice_file, notes, created_by)
@@ -130,6 +131,7 @@ router.post('/', requirePermission('purchases.manage'), wrap(async (req, res) =>
         await db.run(`INSERT INTO purchase_items (purchase_id, medicine_id, batch_id, batch_no, expiry_date, qty, free_qty, purchase_price, mrp, selling_price, gst_rate, amount)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
           pid, it.medicine_id, batchId, it.batch_no, it.expiry_date, qty, freeQty, it.purchase_price, it.mrp, it.selling_price || it.mrp, med.gst_rate, amount);
+        stockItems.push({ medicine_id: it.medicine_id, name: med.name, batch_no: it.batch_no, expiry_date: it.expiry_date, qty_added: qty + freeQty });
         subtotal += amount - gst; gstAmt += gst;
       }
       const total = round2(subtotal + gstAmt);
@@ -144,6 +146,8 @@ router.post('/', requirePermission('purchases.manage'), wrap(async (req, res) =>
     });
     audit(req, 'create', 'purchases', pid, `${invoice_no} ₹${total}`);
     await notify({ branch_id: branchId, role: 'branch_admin', type: 'purchase', title: 'New purchase entry', message: `Invoice ${invoice_no} for ₹${total} recorded${paid < total ? ` (₹${round2(total - paid)} pending)` : ''}.` });
+    await notifyStockUpdate({ branchId, kind: 'purchase', byUser: req.user, items: stockItems });
+    broadcast('stock_changed', { branch_id: branchId }, branchId);
     res.json({ id: pid, total });
   } catch (e) {
     res.status(400).json({ error: e.message });

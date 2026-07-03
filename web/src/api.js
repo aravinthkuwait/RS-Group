@@ -23,7 +23,11 @@ export async function api(path, { method = 'GET', body, params } = {}) {
   });
   if (res.status === 401) { onUnauthorized(); throw new Error('Session expired. Please login again.'); }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(data.error || `Request failed (${res.status})`);
+    if (data.approval_required) err.approval_required = true;
+    throw err;
+  }
   return data;
 }
 

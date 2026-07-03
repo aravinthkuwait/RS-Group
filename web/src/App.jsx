@@ -16,6 +16,8 @@ import Accounts from './pages/Accounts.jsx';
 import Reports from './pages/Reports.jsx';
 import Staff from './pages/Staff.jsx';
 import Settings from './pages/Settings.jsx';
+import Offers from './pages/Offers.jsx';
+import StockUpdates from './pages/StockUpdates.jsx';
 
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
@@ -101,6 +103,8 @@ export default function App() {
                 <Route path="/purchases" element={<Protected user={user} perm="purchases.view"><Purchases /></Protected>} />
                 <Route path="/transfers" element={<Protected user={user} perm={['inventory.transfer', 'inventory.view']}><Transfers /></Protected>} />
                 <Route path="/customers" element={<Protected user={user} perm="customers.view"><Customers /></Protected>} />
+                <Route path="/offers" element={<Protected user={user} perm="discounts.manage"><Offers /></Protected>} />
+                <Route path="/stock-updates" element={<Protected user={user} perm={['inventory.view', 'billing.create']}><StockUpdates /></Protected>} />
                 <Route path="/accounts" element={<Protected user={user} perm={['expenses.view', 'accounts.manage']}><Accounts /></Protected>} />
                 <Route path="/reports" element={<Protected user={user} perm="reports.view"><Reports /></Protected>} />
                 <Route path="/staff" element={<Protected user={user} perm={['staff.manage', 'tasks.view', 'delivery.view', 'attendance.self']}><Staff /></Protected>} />

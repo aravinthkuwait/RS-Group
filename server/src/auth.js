@@ -11,6 +11,7 @@ export const ROLES = [
 export const ALL_PERMISSIONS = [
   'dashboard.view', 'dashboard.all_branches',
   'billing.create', 'billing.discount', 'billing.return', 'billing.cancel', 'billing.view',
+  'discounts.manage',
   'inventory.view', 'inventory.edit', 'inventory.adjust', 'inventory.transfer',
   'purchases.view', 'purchases.manage', 'suppliers.manage',
   'customers.view', 'customers.manage',
@@ -29,6 +30,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
   branch_admin: ALL_PERMISSIONS.filter(p => !['branches.manage', 'dashboard.all_branches'].includes(p)),
   branch_manager: [
     'dashboard.view', 'billing.create', 'billing.discount', 'billing.return', 'billing.cancel', 'billing.view',
+    'discounts.manage',
     'inventory.view', 'inventory.edit', 'inventory.adjust', 'inventory.transfer',
     'purchases.view', 'purchases.manage', 'suppliers.manage',
     'customers.view', 'customers.manage', 'expenses.view', 'expenses.manage', 'accounts.manage',
@@ -42,7 +44,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     'tasks.view', 'attendance.self',
   ],
   billing_staff: [
-    'dashboard.view', 'billing.create', 'billing.view', 'billing.return',
+    'dashboard.view', 'billing.create', 'billing.discount', 'billing.view', 'billing.return',
     'inventory.view', 'customers.view', 'customers.manage',
     'tasks.view', 'attendance.self',
   ],
@@ -117,6 +119,17 @@ export function requirePermission(...permissions) {
     if (permissions.some(p => can(req.user, p))) return next();
     return res.status(403).json({ error: 'You do not have permission for this action' });
   };
+}
+
+// Maximum discount % a user may apply without manager approval.
+// Managers/admins (discounts.manage) are unlimited; other billing users are
+// capped by their assigned per-user limit (default 10%).
+export function discountLimit(user) {
+  if (can(user, 'discounts.manage')) return 100;
+  if (user.max_discount_percent !== null && user.max_discount_percent !== undefined) {
+    return Number(user.max_discount_percent);
+  }
+  return 10;
 }
 
 // Branches a user may work in: primary branch + any extra assigned branches.

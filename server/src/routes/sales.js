@@ -1,6 +1,7 @@
 import { Router } from 'express';
+import bcrypt from 'bcryptjs';
 import { all, get, run, tx } from '../db.js';
-import { requirePermission, can, scopeBranch, writeBranch, canAccessBranch } from '../auth.js';
+import { requirePermission, can, scopeBranch, writeBranch, canAccessBranch, discountLimit, permissionsForUser } from '../auth.js';
 import { audit, broadcast, nextInvoiceNo, checkStockAlerts, round2, today } from '../util.js';
 import { invoicePdf } from '../pdf.js';
 
@@ -10,9 +11,11 @@ const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 async function saleWithDetails(id) {
   const sale = await get(`SELECT s.*, c.name AS customer_name, c.phone AS customer_phone,
       u.name AS staff_name, b.name AS branch_name, b.code AS branch_code,
-      d.name AS delivery_staff_name
+      d.name AS delivery_staff_name, ap.name AS discount_approved_by_name, p.name AS promo_name
     FROM sales s LEFT JOIN customers c ON c.id = s.customer_id
     LEFT JOIN users u ON u.id = s.staff_id LEFT JOIN users d ON d.id = s.delivery_staff_id
+    LEFT JOIN users ap ON ap.id = s.discount_approved_by
+    LEFT JOIN promotions p ON p.id = s.promo_id
     JOIN branches b ON b.id = s.branch_id WHERE s.id = ?`, id);
   if (!sale) return null;
   sale.items = await all(`SELECT si.*, m.name AS medicine_name, m.unit FROM sale_items si
@@ -60,19 +63,42 @@ router.get('/:id(\\d+)', requirePermission('billing.view', 'billing.create'), wr
 }));
 
 // ---------------- Create bill (POS) ----------------
-// items: [{ batch_id, qty, price? }], payment: { cash, upi, card, credit }
+// items: [{ batch_id, qty, price?, discount? }] (discount = line ₹ off)
+// discount: legacy number (₹ off the bill) or
+//   { type: 'none'|'percent'|'amount'|'customer'|'promo', value, promo_id }
+// approval: { email, password } — manager sign-off when over the user's limit
+// payment: { cash, upi, card, credit }
 router.post('/', requirePermission('billing.create'), wrap(async (req, res) => {
   const { items = [], customer_id = null, customer_phone = null, discount = 0,
     payment = {}, doctor_name = '', notes = '', hold = false, prescription_file = null,
-    resume_sale_id = null, delivery = null } = req.body || {};
+    resume_sale_id = null, delivery = null, approval = null } = req.body || {};
   const branchId = writeBranch(req, req.body.branch_id);
   if (!branchId) return res.status(400).json({ error: 'No branch assigned to your account' });
   if (!items.length) return res.status(400).json({ error: 'Cart is empty' });
-  if (Number(discount) > 0 && !hold && !can(req.user, 'billing.discount')) {
+
+  // Normalise the discount request (legacy number = flat ₹ off the bill)
+  const disc = typeof discount === 'object' && discount !== null
+    ? { type: discount.type || 'none', value: Number(discount.value) || 0, promo_id: discount.promo_id || null }
+    : { type: Number(discount) > 0 ? 'amount' : 'none', value: Number(discount) || 0, promo_id: null };
+  const hasItemDiscount = items.some(it => Number(it.discount) > 0);
+  const wantsDiscount = disc.type !== 'none' || hasItemDiscount;
+  if (wantsDiscount && !hold && !can(req.user, 'billing.discount')) {
     return res.status(403).json({ error: 'You do not have permission to apply discounts' });
   }
   if (prescription_file && prescription_file.length > 2_000_000) {
     return res.status(400).json({ error: 'Prescription file too large (max ~1.5MB)' });
+  }
+
+  // Resolve the approving manager up-front (used only if the discount
+  // exceeds the billing user's assigned limit).
+  let approver = null;
+  if (approval?.email && approval?.password) {
+    const a = await get('SELECT * FROM users WHERE email = ? AND active = 1', approval.email.trim().toLowerCase());
+    if (a && bcrypt.compareSync(approval.password, a.password_hash) && canAccessBranch(a, branchId)) {
+      a.perms = await permissionsForUser(a);
+      if (can(a, 'discounts.manage')) approver = a;
+    }
+    if (!approver) return res.status(403).json({ error: 'Manager approval failed: wrong credentials or no discount authority' });
   }
 
   try {
@@ -95,10 +121,10 @@ router.post('/', requirePermission('billing.create'), wrap(async (req, res) => {
         }
       }
 
-      let subtotal = 0, gstTotal = 0;
+      let subtotal = 0, gstTotal = 0, grossAmount = 0, itemDiscTotal = 0;
       const lineItems = [];
       for (const it of items) {
-        const batch = await db.get(`SELECT b.*, m.name AS medicine_name, m.gst_rate AS med_gst, m.prescription_required
+        const batch = await db.get(`SELECT b.*, m.name AS medicine_name, m.gst_rate AS med_gst, m.prescription_required, m.category
           FROM stock_batches b JOIN medicines m ON m.id = b.medicine_id WHERE b.id = ?`, it.batch_id);
         if (!batch) throw new Error('Selected batch not found');
         if (batch.branch_id !== branchId) throw new Error(`${batch.medicine_name}: batch belongs to another branch`);
@@ -110,14 +136,70 @@ router.post('/', requirePermission('billing.create'), wrap(async (req, res) => {
         }
         const price = it.price != null ? Number(it.price) : batch.selling_price;
         if (price > batch.mrp) throw new Error(`${batch.medicine_name}: price cannot exceed MRP ₹${batch.mrp}`);
-        const lineTotal = round2(qty * price);
+        const lineGross = round2(qty * price);
+        const itemDisc = Math.min(round2(Number(it.discount) || 0), lineGross);
+        if (itemDisc < 0) throw new Error(`${batch.medicine_name}: invalid item discount`);
+        const lineTotal = round2(lineGross - itemDisc);
         const gst = round2(lineTotal * batch.med_gst / (100 + batch.med_gst));
+        grossAmount += lineGross; itemDiscTotal += itemDisc;
         subtotal += lineTotal; gstTotal += gst;
-        lineItems.push({ batch, qty, price, lineTotal, gst });
+        lineItems.push({ batch, qty, price, lineGross, itemDisc, lineTotal, gst });
       }
+      grossAmount = round2(grossAmount);
+      itemDiscTotal = round2(itemDiscTotal);
       subtotal = round2(subtotal);
-      const disc = Math.min(Number(discount) || 0, subtotal);
-      const gross = subtotal - disc;
+
+      // ---- Bill-level discount (percent / amount / customer / promo) ----
+      let billDisc = 0;
+      let promo = null;
+      if (disc.type === 'percent') {
+        if (disc.value < 0 || disc.value > 100) throw new Error('Discount % must be between 0 and 100');
+        billDisc = round2(subtotal * disc.value / 100);
+      } else if (disc.type === 'amount') {
+        billDisc = round2(disc.value);
+      } else if (disc.type === 'customer') {
+        if (!custId) throw new Error('Select a customer to apply their special discount');
+        const cust = await db.get('SELECT * FROM customers WHERE id = ?', custId);
+        const pct = Number(cust?.discount_percent) || 0;
+        if (pct <= 0) throw new Error('This customer has no special discount configured');
+        disc.value = pct;
+        billDisc = round2(subtotal * pct / 100);
+      } else if (disc.type === 'promo') {
+        promo = await db.get('SELECT * FROM promotions WHERE id = ?', disc.promo_id);
+        if (!promo || !promo.active) throw new Error('Promotional offer not found or inactive');
+        const td = today();
+        if (promo.from_date > td || promo.to_date < td) throw new Error(`Offer "${promo.name}" is not valid today`);
+        if (promo.branch_id && promo.branch_id !== branchId) throw new Error(`Offer "${promo.name}" is for another branch`);
+        if (subtotal < (promo.min_bill_amount || 0)) throw new Error(`Offer "${promo.name}" needs a minimum bill of ₹${promo.min_bill_amount}`);
+        const base = promo.applies_to === 'all' ? subtotal
+          : round2(lineItems.filter(li => promo.applies_to === 'category'
+              ? li.batch.category === promo.category
+              : li.batch.medicine_id === promo.medicine_id)
+            .reduce((a, li) => a + li.lineTotal, 0));
+        if (base <= 0) throw new Error(`No items on this bill qualify for "${promo.name}"`);
+        billDisc = promo.discount_type === 'percent'
+          ? round2(base * promo.discount_value / 100)
+          : Math.min(round2(promo.discount_value), base);
+        disc.value = promo.discount_value;
+      }
+      billDisc = Math.min(Math.max(billDisc, 0), subtotal);
+
+      // ---- Discount limit enforcement (manager approval when exceeded) ----
+      // Promotional offers and customer special discounts are pre-approved by
+      // the admin who configured them; the per-user limit only guards MANUAL
+      // discounts (item-wise + percent/amount on the bill).
+      const totalDiscount = round2(itemDiscTotal + billDisc);
+      const manualDiscount = round2(itemDiscTotal + (['percent', 'amount'].includes(disc.type) ? billDisc : 0));
+      const discountPct = grossAmount > 0 ? (manualDiscount / grossAmount) * 100 : 0;
+      if (!hold && manualDiscount > 0 && discountPct > discountLimit(req.user) + 0.01 && !approver) {
+        const err = new Error(`Discount ${discountPct.toFixed(1)}% exceeds your limit of ${discountLimit(req.user)}%. Manager approval required.`);
+        err.approvalRequired = true;
+        throw err;
+      }
+
+      // GST shrinks proportionally with the bill-level discount
+      if (billDisc > 0 && subtotal > 0) gstTotal = gstTotal * (subtotal - billDisc) / subtotal;
+      const gross = subtotal - billDisc;
       const total = hold ? round2(gross) : Math.round(gross);
       const roundOff = round2(total - gross);
 
@@ -135,34 +217,39 @@ router.post('/', requirePermission('billing.create'), wrap(async (req, res) => {
       const invoiceNo = await nextInvoiceNo(branchId, db);
       const saleId = await db.insert(`INSERT INTO sales (invoice_no, branch_id, customer_id, staff_id, subtotal, discount, gst_amount, round_off, total,
           paid_cash, paid_upi, paid_card, credit_amount, status, doctor_name, prescription_file, notes,
-          delivery_status, delivery_address)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        invoiceNo, branchId, custId, req.user.id, subtotal, disc, round2(gstTotal), roundOff, total,
+          delivery_status, delivery_address, discount_type, discount_value, item_discount, promo_id, discount_approved_by)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        invoiceNo, branchId, custId, req.user.id, subtotal, billDisc, round2(gstTotal), roundOff, total,
         cash, upi, card, credit, hold ? 'held' : 'completed', doctor_name, prescription_file, notes,
-        delivery ? 'pending' : null, delivery?.address || null);
+        delivery ? 'pending' : null, delivery?.address || null,
+        totalDiscount > 0 ? disc.type : 'none', disc.value, itemDiscTotal,
+        promo?.id || null, approver?.id || null);
 
       for (const li of lineItems) {
         await db.run(`INSERT INTO sale_items (sale_id, medicine_id, batch_id, batch_no, qty, mrp, price, purchase_price, gst_rate, gst_amount, discount, total)
-          VALUES (?,?,?,?,?,?,?,?,?,?,0,?)`,
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
           saleId, li.batch.medicine_id, li.batch.id, li.batch.batch_no, li.qty, li.batch.mrp, li.price,
-          li.batch.purchase_price, li.batch.med_gst, li.gst, li.lineTotal);
+          li.batch.purchase_price, li.batch.med_gst, li.gst, li.itemDisc, li.lineTotal);
         if (!hold) await db.run('UPDATE stock_batches SET qty = qty - ? WHERE id = ?', li.qty, li.batch.id);
       }
       if (!hold && custId) {
         await db.run('UPDATE customers SET loyalty_points = loyalty_points + ? WHERE id = ?', Math.floor(total / 100), custId);
       }
-      return { saleId, invoiceNo, total, lineItems };
+      return { saleId, invoiceNo, total, lineItems, totalDiscount, discountPct };
     });
 
-    const { saleId, invoiceNo, total, lineItems } = result;
-    audit(req, hold ? 'hold_bill' : 'create_bill', 'sales', saleId, `${invoiceNo} ₹${total}`);
+    const { saleId, invoiceNo, total, lineItems, totalDiscount, discountPct } = result;
+    audit(req, hold ? 'hold_bill' : 'create_bill', 'sales', saleId,
+      `${invoiceNo} ₹${total}` + (totalDiscount > 0
+        ? ` (discount ${disc.type} ₹${totalDiscount} = ${discountPct.toFixed(1)}% by ${req.user.name}${approver ? `, approved by ${approver.name}` : ''})`
+        : ''));
     if (!hold) {
       for (const li of lineItems) await checkStockAlerts(li.batch.medicine_id, branchId);
       broadcast('sale_created', { id: saleId, invoice_no: invoiceNo, total, branch_id: branchId }, branchId);
     }
     res.json({ id: saleId, invoice_no: invoiceNo, total, sale: await saleWithDetails(saleId) });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(e.approvalRequired ? 403 : 400).json({ error: e.message, approval_required: !!e.approvalRequired });
   }
 }));
 

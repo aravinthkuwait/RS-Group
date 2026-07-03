@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, useBranch, can } from './App.jsx';
 import { api } from './api.js';
 import { useToast } from './ui.jsx';
@@ -8,6 +8,7 @@ const NAV = [
   { section: 'Overview' },
   { to: '/', icon: '📊', label: 'Dashboard', perm: ['dashboard.view'] },
   { to: '/alerts', icon: '⚠️', label: 'Stock Alerts', perm: ['inventory.view'] },
+  { to: '/stock-updates', icon: '📦', label: 'Stock Updates', perm: ['inventory.view', 'billing.create'] },
   { section: 'Operations' },
   { to: '/pos', icon: '🧾', label: 'Billing (POS)', perm: ['billing.create'] },
   { to: '/sales', icon: '💳', label: 'Sales & Bills', perm: ['billing.view', 'billing.create'] },
@@ -15,6 +16,7 @@ const NAV = [
   { to: '/purchases', icon: '📦', label: 'Purchases', perm: ['purchases.view'] },
   { to: '/transfers', icon: '🔁', label: 'Stock Transfers', perm: ['inventory.transfer'] },
   { to: '/customers', icon: '👥', label: 'Customers', perm: ['customers.view'] },
+  { to: '/offers', icon: '🏷️', label: 'Discounts & Offers', perm: ['discounts.manage'] },
   { section: 'Finance' },
   { to: '/accounts', icon: '💰', label: 'Accounts & Expenses', perm: ['expenses.view', 'accounts.manage'] },
   { to: '/reports', icon: '📑', label: 'Reports', perm: ['reports.view'] },
@@ -25,21 +27,31 @@ const NAV = [
 
 const TITLES = {
   '/': 'Dashboard', '/pos': 'Billing (POS)', '/sales': 'Sales & Bills', '/inventory': 'Inventory',
-  '/alerts': 'Stock & Expiry Alerts', '/purchases': 'Purchases & Suppliers', '/transfers': 'Stock Transfers',
-  '/customers': 'Customers', '/accounts': 'Accounts & Expenses', '/reports': 'Reports',
+  '/alerts': 'Stock & Expiry Alerts', '/stock-updates': 'Stock Update Notifications',
+  '/purchases': 'Purchases & Suppliers', '/transfers': 'Stock Transfers',
+  '/customers': 'Customers', '/offers': 'Discounts & Offers', '/accounts': 'Accounts & Expenses', '/reports': 'Reports',
   '/staff': 'Staff, Tasks & Deliveries', '/settings': 'Settings',
 };
+
+// Routes where the "new stock" popup should surface immediately
+const STOCK_POPUP_ROUTES = ['/', '/pos', '/inventory'];
 
 export default function Layout() {
   const { user, logout } = useAuth();
   const { options = [], branchId, setBranchId, canSwitch, allBranchesOption, branchName } = useBranch();
   const location = useLocation();
+  const navigate = useNavigate();
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [notifs, setNotifs] = useState([]);
   const [unread, setUnread] = useState(0);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [stockPopup, setStockPopup] = useState(null); // real-time "new stock" popup
   const esRef = useRef(null);
+  const locRef = useRef(location.pathname);
+  const branchRef = useRef(branchId);
+  locRef.current = location.pathname;
+  branchRef.current = branchId;
 
   const loadNotifs = () => api('/staff/notifications').then(d => {
     setNotifs(d.notifications); setUnread(d.unread);
@@ -52,12 +64,29 @@ export default function Layout() {
     const es = new EventSource(`/api/staff/stream?token=${token}`);
     es.addEventListener('notification', e => {
       const n = JSON.parse(e.data);
-      toast(`${n.title}: ${n.message}`.slice(0, 140));
+      if (n.type === 'stock_update') {
+        // Popup on dashboard / billing / inventory for the selected branch only
+        const branchOk = !branchRef.current || Number(branchRef.current) === Number(n.branch_id);
+        if (branchOk && STOCK_POPUP_ROUTES.includes(locRef.current)) setStockPopup(n);
+        else toast(`${n.title}: ${n.message}`.slice(0, 140));
+      } else {
+        toast(`${n.title}: ${n.message}`.slice(0, 140));
+      }
       loadNotifs();
     });
     esRef.current = es;
     return () => es.close();
   }, []);
+
+  const dismissStockPopup = async (markRead, goToStock) => {
+    const n = stockPopup;
+    setStockPopup(null);
+    if (markRead && n?.id) {
+      await api('/staff/notifications/read', { method: 'POST', body: { ids: [n.id] } }).catch(() => {});
+      loadNotifs();
+    }
+    if (goToStock) navigate('/inventory');
+  };
 
   useEffect(() => { setOpen(false); }, [location.pathname]);
 
@@ -137,6 +166,48 @@ export default function Layout() {
         <main className="content">
           <Outlet />
         </main>
+      </div>
+
+      {stockPopup && <StockUpdatePopup n={stockPopup} onAction={dismissStockPopup} />}
+    </div>
+  );
+}
+
+// Real-time popup shown when new stock lands in the user's selected branch
+function StockUpdatePopup({ n, onAction }) {
+  let d = {};
+  try { d = JSON.parse(typeof n.data === 'string' ? n.data : JSON.stringify(n.data || {})); } catch { /* ignore */ }
+  const kindLabel = { purchase: 'Purchase entry completed', transfer: 'Stock transfer received', adjustment: 'Stock quantity updated' }[d.kind] || 'Stock updated';
+  return (
+    <div className="stock-popup">
+      <div className="head">
+        <span style={{ fontSize: '1.3rem' }}>📦</span>
+        <div style={{ flex: 1 }}>
+          <b>New stock available!</b>
+          <div className="muted" style={{ fontSize: '.75rem' }}>
+            {kindLabel} · {d.branch_name} · {d.at ? d.at + ' UTC' : ''}
+          </div>
+        </div>
+      </div>
+      <div className="items">
+        {(d.items || []).map((it, i) => (
+          <div className="row" key={i}>
+            <div>
+              <b>{it.name}</b>
+              <div className="muted" style={{ fontSize: '.72rem' }}>Batch {it.batch_no} · Exp {it.expiry_date}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <b style={{ color: '#2e8b3d' }}>+{it.qty_added}</b>
+              <div className="muted" style={{ fontSize: '.72rem' }}>now {it.new_qty} in stock</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {d.updated_by && <div className="muted" style={{ fontSize: '.75rem', marginTop: 6 }}>Updated by {d.updated_by}</div>}
+      <div className="btns">
+        <button className="btn sm" onClick={() => onAction(true, true)}>👁 View Stock</button>
+        <button className="btn green sm" onClick={() => onAction(true, false)}>✓ Mark as Read</button>
+        <button className="btn ghost sm" onClick={() => onAction(false, false)}>Close</button>
       </div>
     </div>
   );

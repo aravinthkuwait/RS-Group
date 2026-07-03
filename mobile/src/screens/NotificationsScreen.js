@@ -15,7 +15,11 @@ export default function NotificationsScreen() {
   }, []);
   useFocusEffect(load);
 
-  const typeIcon = { stock: '📉', expiry: '⏳', task: '📋', purchase: '📦', transfer: '🔁', accounts: '💰', announcement: '📢', info: 'ℹ️' };
+  const typeIcon = { stock: '📉', stock_update: '📦', expiry: '⏳', task: '📋', purchase: '📦', transfer: '🔁', accounts: '💰', announcement: '📢', info: 'ℹ️' };
+  const stockItems = n => {
+    if (n.type !== 'stock_update' || !n.data) return null;
+    try { return JSON.parse(n.data).items || null; } catch { return null; }
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
@@ -27,6 +31,11 @@ export default function NotificationsScreen() {
           <View style={[{ backgroundColor: item.read ? '#fff' : colors.brandLight, borderRadius: 10, padding: 12, marginBottom: 8 }, shadow]}>
             <Text style={{ fontWeight: '700' }}>{typeIcon[item.type] || 'ℹ️'} {item.title}</Text>
             {!!item.message && <Text style={{ color: colors.ink2, fontSize: 13, marginTop: 2 }}>{item.message}</Text>}
+            {(stockItems(item) || []).map((it, i) => (
+              <Text key={i} style={{ color: colors.green, fontSize: 12, marginTop: 2 }}>
+                {it.name} · batch {it.batch_no} · +{it.qty_added} → {it.new_qty} in stock
+              </Text>
+            ))}
             <Text style={{ color: colors.ink3, fontSize: 11, marginTop: 4 }}>{item.created_at}</Text>
           </View>
         )}

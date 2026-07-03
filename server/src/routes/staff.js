@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { all, get, run, insert } from '../db.js';
-import { requirePermission, scopeBranch } from '../auth.js';
+import { requirePermission, scopeBranch, allowedBranchIds } from '../auth.js';
 import { audit, notify, sseHandler, today } from '../util.js';
 
 const router = Router();
@@ -90,14 +90,36 @@ router.put('/tasks/:id', requirePermission('tasks.view'), wrap(async (req, res) 
 }));
 
 // ---------------- Notifications ----------------
+// Users see notifications for every branch they are assigned to.
+const branchFilter = (user) => {
+  const allowed = allowedBranchIds(user); // null = all branches
+  return allowed && allowed.length
+    ? `(branch_id IS NULL OR branch_id IN (${allowed.map(Number).join(',')}))`
+    : '(1=1)';
+};
+
 router.get('/notifications', wrap(async (req, res) => {
   const u = req.user;
   const rows = await all(`SELECT * FROM notifications
     WHERE (user_id = ? OR user_id IS NULL)
       AND (role IS NULL OR role = ?)
-      AND (branch_id IS NULL OR branch_id = ? OR ? IN ('super_admin','auditor'))
-    ORDER BY id DESC LIMIT 60`, u.id, u.role, u.branch_id || -1, u.role);
+      AND ${branchFilter(u)}
+    ORDER BY id DESC LIMIT 60`, u.id, u.role);
   res.json({ notifications: rows, unread: rows.filter(n => !n.read).length });
+}));
+
+// Stock update notification history (popup archive)
+router.get('/stock-notifications', wrap(async (req, res) => {
+  const u = req.user;
+  const { page = 1, limit = 50, branch_id } = req.query;
+  const where = [`type = 'stock_update'`, branchFilter(u)];
+  const params = [];
+  if (branch_id) { where.push('branch_id = ?'); params.push(Number(branch_id)); }
+  const base = `FROM notifications WHERE ${where.join(' AND ')}`;
+  const total = (await get(`SELECT COUNT(*) AS c ${base}`, ...params)).c;
+  const rows = await all(`SELECT * ${base} ORDER BY id DESC LIMIT ? OFFSET ?`,
+    ...params, Number(limit), (Number(page) - 1) * Number(limit));
+  res.json({ notifications: rows, total, page: Number(page) });
 }));
 
 router.post('/notifications/read', wrap(async (req, res) => {

@@ -29,7 +29,11 @@ export async function api(path, { method = 'GET', body, params } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(data.error || `Request failed (${res.status})`);
+    if (data.approval_required) err.approval_required = true;
+    throw err;
+  }
   return data;
 }
 

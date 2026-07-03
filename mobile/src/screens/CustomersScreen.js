@@ -5,7 +5,7 @@ import { useAuth, can } from '../../App';
 import { colors, shadow } from '../theme';
 import { Field, Chips, Btn } from '../ui';
 
-const blank = { name: '', phone: '', address: '', gstin: '', customer_type: 'individual' };
+const blank = { name: '', phone: '', address: '', gstin: '', customer_type: 'individual', discount_percent: '' };
 
 export default function CustomersScreen() {
   const { user } = useAuth();
@@ -25,7 +25,7 @@ export default function CustomersScreen() {
     if (!edit.name || !edit.phone) return Alert.alert('Missing details', 'Name and mobile number are required.');
     setBusy(true);
     try {
-      await api('/customers', { method: 'POST', body: edit });
+      await api('/customers', { method: 'POST', body: { ...edit, discount_percent: Number(edit.discount_percent) || 0 } });
       setEdit(null); load();
     } catch (e) { Alert.alert('Could not save', e.message); }
     setBusy(false);
@@ -70,6 +70,8 @@ export default function CustomersScreen() {
             {edit.customer_type === 'business' && (
               <Field label="GST number (GSTIN)" autoCapitalize="characters" value={edit.gstin} onChangeText={v => setEdit(e => ({ ...e, gstin: v }))} />
             )}
+            <Field label="Special discount % (auto-offered at billing)" keyboardType="numeric"
+              value={String(edit.discount_percent)} onChangeText={v => setEdit(e => ({ ...e, discount_percent: v }))} />
             <Btn title={busy ? 'Saving…' : '💾 Save Customer'} color={colors.green} onPress={save} disabled={busy} />
             <Btn title="Cancel" color={colors.ink3} onPress={() => setEdit(null)} />
           </ScrollView>

@@ -57,10 +57,10 @@ const heldList = (await req('/sales/held', 'GET', null, T)).data;
 ok('held list contains bill', heldList.sales.some(s => s.id === hold.id));
 
 const discDenied = await req('/sales', 'POST', {
-  items: [{ batch_id: item.batch_id, qty: 1 }], discount: 5,
-  payment: { cash: 1, upi: 0, card: 0, credit: 0 },
+  items: [{ batch_id: item.batch_id, qty: 1 }], discount: { type: 'percent', value: 50 },
+  payment: { cash: Math.round(item.selling_price / 2), upi: 0, card: 0, credit: 0 },
 }, T);
-ok('discount without permission rejected', discDenied.status === 403);
+ok('over-limit discount needs approval', discDenied.status === 403 && discDenied.data.approval_required === true);
 const bill = (await req('/sales', 'POST', {
   items: [{ batch_id: item.batch_id, qty: 2 }, { batch_id: item2.batch_id, qty: 1 }],
   customer_phone: '+91 9998887771',
@@ -165,6 +165,78 @@ const tdone = await req(`/staff/tasks/${task.id}`, 'PUT', { status: 'done' }, T)
 ok('staff completes own task', tdone.status === 200);
 const notifs = (await req('/staff/notifications', 'GET', null, T)).data;
 ok('notifications delivered', notifs.notifications.length > 0, `${notifs.notifications.length}`);
+
+console.log('— Discounts & offers —');
+const promosActive = (await req('/promotions/active', 'GET', null, T)).data;
+ok('active offers listed', promosActive.promotions.length >= 1, `${promosActive.promotions.length} live`);
+const newPromo = (await req('/promotions', 'POST', {
+  name: 'E2E Flash Sale', discount_type: 'percent', discount_value: 8, applies_to: 'all',
+  from_date: '2000-01-01', to_date: '2099-12-31', min_bill_amount: 0,
+}, OT)).data;
+ok('offer created by owner', !!newPromo.id);
+const promoDenied = await req('/promotions', 'POST', {
+  name: 'Nope', discount_type: 'percent', discount_value: 5, from_date: '2000-01-01', to_date: '2099-12-31',
+}, T);
+ok('billing staff cannot create offers', promoDenied.status === 403);
+
+// Retry once with the server-stated total (avoids paisa rounding mismatches)
+const tryPay = async (body, token, guess) => {
+  let r = await req('/sales', 'POST', { ...body, payment: { cash: guess, upi: 0, card: 0, credit: 0 } }, token);
+  const m = r.status === 400 && (r.data.error || '').match(/bill total \(₹([\d.]+)\)/);
+  if (m) r = await req('/sales', 'POST', { ...body, payment: { cash: Number(m[1]), upi: 0, card: 0, credit: 0 } }, token);
+  return r;
+};
+
+const dItem = (await req('/inventory/medicines/pos-search?q=pan', 'GET', null, T)).data.results[0];
+const smallDisc = await tryPay({
+  items: [{ batch_id: dItem.batch_id, qty: 2 }], discount: { type: 'percent', value: 4 },
+}, T, Math.round(2 * dItem.selling_price * 0.96));
+ok('discount within limit works', smallDisc.status === 200, smallDisc.data.invoice_no);
+
+const approved = await tryPay({
+  items: [{ batch_id: dItem.batch_id, qty: 2 }], discount: { type: 'percent', value: 25 },
+  approval: { email: 'priya@rsgroup.in', password: 'rsgroup123' },
+}, T, Math.round(2 * dItem.selling_price * 0.75));
+ok('manager approval unlocks big discount', approved.status === 200 && !!approved.data.sale?.discount_approved_by,
+  approved.data.invoice_no);
+
+const promoSale = await tryPay({
+  items: [{ batch_id: dItem.batch_id, qty: 2 }], discount: { type: 'promo', promo_id: newPromo.id },
+}, T, Math.round(2 * dItem.selling_price * 0.92));
+ok('promotional offer applies at billing', promoSale.status === 200 && promoSale.data.sale?.promo_id === newPromo.id,
+  promoSale.data.invoice_no || promoSale.data.error);
+
+const custs = (await req('/customers?limit=50', 'GET', null, OT)).data;
+const specialCust = custs.customers.find(c => Number(c.discount_percent) > 0);
+ok('customer profile carries special discount', !!specialCust, specialCust ? `${specialCust.name} ${specialCust.discount_percent}%` : '');
+const itemDiscSale = await tryPay({
+  items: [{ batch_id: dItem.batch_id, qty: 2, discount: 6 }],
+}, T, Math.round(2 * dItem.selling_price - 6));
+ok('item-wise discount works', itemDiscSale.status === 200 && itemDiscSale.data.sale?.item_discount === 6);
+
+const discRep = (await req('/reports/discounts?from=2000-01-01&to=2099-12-31', 'GET', null, OT)).data;
+ok('discount report (bill-wise)', Array.isArray(discRep.rows) && discRep.rows.length > 0, `${discRep.rows?.length} rows`);
+for (const g of ['branch', 'user', 'customer', 'product']) {
+  const gr = (await req(`/reports/discounts?group=${g}&from=2000-01-01&to=2099-12-31`, 'GET', null, OT)).data;
+  ok(`discount report (${g}-wise)`, Array.isArray(gr.rows), `${gr.rows?.length} rows`);
+}
+const promoDel = (await req(`/promotions/${newPromo.id}`, 'DELETE', null, OT)).data;
+ok('used offer deactivated not deleted', promoDel.deactivated === true);
+
+console.log('— Stock update notifications —');
+const invT = (await req('/auth/login', 'POST', { email: 'vignesh@rsgroup.in', password: 'rsgroup123' })).data.token;
+const stockRows = (await req('/inventory/stock?q=', 'GET', null, invT)).data.stock;
+const adjBatch = stockRows.find(b => b.qty > 0);
+const topUp = await req('/inventory/adjustments', 'POST', { batch_id: adjBatch.id, qty_change: 7, reason: 'e2e stock top-up' }, invT);
+ok('positive stock adjustment', topUp.status === 200);
+const stockNotifs = (await req('/staff/stock-notifications', 'GET', null, T)).data;
+ok('stock update notification created', stockNotifs.total >= 1, `${stockNotifs.total} total`);
+const latest = stockNotifs.notifications[0];
+const payload = JSON.parse(latest?.data || '{}');
+ok('notification has item details', payload.items?.length > 0 && payload.items[0].qty_added > 0 && !!payload.updated_by,
+  payload.items?.[0] ? `${payload.items[0].name} +${payload.items[0].qty_added} → ${payload.items[0].new_qty}` : '');
+const markRead = await req('/staff/notifications/read', 'POST', { ids: [latest.id] }, T);
+ok('stock notification mark-as-read', markRead.status === 200);
 
 console.log('— Admin —');
 const nu = (await req('/admin/users', 'POST', { name: 'Temp User', email: 'temp@rsgroup.in', password: 'temp123', role: 'billing_staff', branch_id: 1 }, OT)).data;

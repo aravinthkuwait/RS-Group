@@ -198,6 +198,83 @@ async function profitReport(req) {
   };
 }
 
+// Discount report — group=bill|branch|user|customer|product.
+// A bill's total discount = bill-level discount + item-level discounts.
+const DISCOUNT_TOTAL = '(s.discount + COALESCE(s.item_discount, 0))';
+async function discountsReport(req) {
+  const branchId = scopeBranch(req); const { from, to } = range(req);
+  const bw = branchId ? 'AND s.branch_id = ?' : ''; const bp = branchId ? [branchId] : [];
+  const group = ['bill', 'branch', 'user', 'customer', 'product'].includes(req.query.group) ? req.query.group : 'bill';
+  const base = `FROM sales s JOIN branches b ON b.id = s.branch_id
+    LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN users u ON u.id = s.staff_id
+    WHERE ${NOT_VOID} AND ${DISCOUNT_TOTAL} > 0 AND s.created_at::date BETWEEN ? AND ? ${bw}`;
+  let rows;
+  if (group === 'bill') {
+    rows = await all(`SELECT s.invoice_no, s.created_at::date AS date, b.name AS branch, u.name AS staff,
+        c.name AS customer, s.discount_type AS type,
+        ROUND((s.subtotal + COALESCE(s.item_discount,0))::numeric, 2) AS gross,
+        ROUND(${DISCOUNT_TOTAL}::numeric, 2) AS discount, s.total AS net, ap.name AS approved_by
+      ${base.replace('WHERE', 'LEFT JOIN users ap ON ap.id = s.discount_approved_by WHERE')}
+      ORDER BY s.created_at DESC`, from, to, ...bp);
+  } else if (group === 'branch') {
+    rows = await all(`SELECT b.name AS branch, COUNT(*) AS bills,
+        ROUND(SUM(s.subtotal + COALESCE(s.item_discount,0))::numeric, 2) AS gross,
+        ROUND(SUM(${DISCOUNT_TOTAL})::numeric, 2) AS discount,
+        ROUND((SUM(${DISCOUNT_TOTAL}) * 100.0 / NULLIF(SUM(s.subtotal + COALESCE(s.item_discount,0)), 0))::numeric, 2) AS discount_pct
+      ${base} GROUP BY b.name ORDER BY discount DESC`, from, to, ...bp);
+  } else if (group === 'user') {
+    rows = await all(`SELECT u.name AS staff, b.code AS branch, COUNT(*) AS bills,
+        ROUND(SUM(${DISCOUNT_TOTAL})::numeric, 2) AS discount,
+        ROUND((SUM(${DISCOUNT_TOTAL}) * 100.0 / NULLIF(SUM(s.subtotal + COALESCE(s.item_discount,0)), 0))::numeric, 2) AS discount_pct
+      ${base} GROUP BY u.name, b.code ORDER BY discount DESC`, from, to, ...bp);
+  } else if (group === 'customer') {
+    rows = await all(`SELECT COALESCE(c.name, 'Walk-in') AS customer, c.phone, COUNT(*) AS bills,
+        ROUND(SUM(${DISCOUNT_TOTAL})::numeric, 2) AS discount
+      ${base} GROUP BY c.name, c.phone ORDER BY discount DESC`, from, to, ...bp);
+  } else {
+    // product: item discounts + each line's proportional share of the bill discount
+    rows = await all(`SELECT m.name AS medicine, m.category, SUM(si.qty)::int AS qty,
+        ROUND(SUM(si.total)::numeric, 2) AS sales,
+        ROUND(SUM(si.discount + s.discount * si.total / NULLIF(s.subtotal, 0))::numeric, 2) AS discount
+      FROM sale_items si JOIN sales s ON s.id = si.sale_id
+      JOIN medicines m ON m.id = si.medicine_id JOIN branches b ON b.id = s.branch_id
+      WHERE ${NOT_VOID} AND ${DISCOUNT_TOTAL} > 0 AND s.created_at::date BETWEEN ? AND ? ${bw}
+      GROUP BY m.name, m.category HAVING SUM(si.discount + s.discount * si.total / NULLIF(s.subtotal, 0)) > 0.005
+      ORDER BY discount DESC`, from, to, ...bp);
+  }
+  const totals = await get(`SELECT COUNT(*) AS bills, ROUND(COALESCE(SUM(${DISCOUNT_TOTAL}),0)::numeric, 2) AS discount,
+      ROUND(COALESCE(SUM((SELECT SUM((si.price - si.purchase_price) * (si.qty - si.returned_qty)) FROM sale_items si WHERE si.sale_id = s.id) - ${DISCOUNT_TOTAL}),0)::numeric, 2) AS profit_after
+    ${base}`, from, to, ...bp);
+  return { rows, from, to, group, totals };
+}
+
+const DISCOUNT_COLUMNS = {
+  bill: [
+    { key: 'invoice_no', label: 'Invoice' }, { key: 'date', label: 'Date' }, { key: 'branch', label: 'Branch' },
+    { key: 'staff', label: 'Staff' }, { key: 'customer', label: 'Customer' }, { key: 'type', label: 'Type' },
+    { key: 'gross', label: 'Gross', align: 'right' }, { key: 'discount', label: 'Discount', align: 'right' },
+    { key: 'net', label: 'Net', align: 'right' }, { key: 'approved_by', label: 'Approved By' },
+  ],
+  branch: [
+    { key: 'branch', label: 'Branch' }, { key: 'bills', label: 'Bills', align: 'right' },
+    { key: 'gross', label: 'Gross Sales', align: 'right' }, { key: 'discount', label: 'Discount', align: 'right' },
+    { key: 'discount_pct', label: 'Discount %', align: 'right' },
+  ],
+  user: [
+    { key: 'staff', label: 'Staff' }, { key: 'branch', label: 'Branch' }, { key: 'bills', label: 'Bills', align: 'right' },
+    { key: 'discount', label: 'Discount', align: 'right' }, { key: 'discount_pct', label: 'Discount %', align: 'right' },
+  ],
+  customer: [
+    { key: 'customer', label: 'Customer' }, { key: 'phone', label: 'Phone' },
+    { key: 'bills', label: 'Bills', align: 'right' }, { key: 'discount', label: 'Discount', align: 'right' },
+  ],
+  product: [
+    { key: 'medicine', label: 'Medicine' }, { key: 'category', label: 'Category' },
+    { key: 'qty', label: 'Qty Sold', align: 'right' }, { key: 'sales', label: 'Sales', align: 'right' },
+    { key: 'discount', label: 'Discount', align: 'right' },
+  ],
+};
+
 const REPORTS = {
   sales: {
     title: 'Sales Report', build: salesReport,
@@ -265,7 +342,19 @@ const REPORTS = {
     ],
     summary: d => [['Total', 'Rs. ' + round2(d.rows.reduce((a, r) => a + r.total, 0)).toFixed(2)]],
   },
+  discounts: {
+    title: 'Discount Report', build: discountsReport,
+    columns: req => DISCOUNT_COLUMNS[['bill', 'branch', 'user', 'customer', 'product'].includes(req.query.group) ? req.query.group : 'bill'],
+    summary: d => [
+      ['Bills with discount', d.totals.bills],
+      ['Total discount given', 'Rs. ' + round2(d.totals.discount).toFixed(2)],
+      ['Profit impact', '- Rs. ' + round2(d.totals.discount).toFixed(2)],
+      ['Profit after discounts', 'Rs. ' + round2(d.totals.profit_after).toFixed(2)],
+    ],
+  },
 };
+
+const columnsFor = (r, req) => (typeof r.columns === 'function' ? r.columns(req) : r.columns);
 
 router.get('/list', requirePermission('reports.view'), wrap(async (req, res) => {
   res.json({ reports: Object.entries(REPORTS).map(([key, r]) => ({ key, title: r.title })).concat([{ key: 'profit', title: 'Profit & Loss Report' }]) });
@@ -275,13 +364,13 @@ router.get('/profit', requirePermission('reports.view'), wrap(async (req, res) =
   res.json(await profitReport(req));
 }));
 
-router.get('/:key(sales|stock|expiry|purchases|gst|products|staff)', requirePermission('reports.view'), wrap(async (req, res) => {
+router.get('/:key(sales|stock|expiry|purchases|gst|products|staff|discounts)', requirePermission('reports.view'), wrap(async (req, res) => {
   const r = REPORTS[req.params.key];
   const data = await r.build(req);
   res.json({ title: r.title, columns: r.columns, rows: data.rows, from: data.from, to: data.to, summary: r.summary(data) });
 }));
 
-router.get('/:key(sales|stock|expiry|purchases|gst|products|staff)/export', requirePermission('reports.export'), wrap(async (req, res) => {
+router.get('/:key(sales|stock|expiry|purchases|gst|products|staff|discounts)/export', requirePermission('reports.export'), wrap(async (req, res) => {
   const r = REPORTS[req.params.key];
   const data = await r.build(req);
   const branchId = scopeBranch(req);

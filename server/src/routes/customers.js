@@ -48,14 +48,16 @@ router.get('/:id(\\d+)', requirePermission('customers.view'), wrap(async (req, r
 
 router.post('/', requirePermission('customers.manage'), wrap(async (req, res) => {
   const { name, phone, email = '', address = '', dob = null, credit_limit = 0, notes = '',
-    gstin = '', customer_type = 'individual' } = req.body || {};
+    gstin = '', customer_type = 'individual', discount_percent = 0 } = req.body || {};
   if (!name || !phone) return res.status(400).json({ error: 'Name and mobile number are required' });
+  const pct = Number(discount_percent) || 0;
+  if (pct < 0 || pct > 100) return res.status(400).json({ error: 'Customer discount % must be 0-100' });
   const dup = await get('SELECT id FROM customers WHERE phone = ?', phone.trim());
   if (dup) return res.status(400).json({ error: 'A customer with this mobile number already exists' });
   const branchId = writeBranch(req, req.body.branch_id);
-  const id = await insert(`INSERT INTO customers (branch_id, name, phone, email, address, dob, credit_limit, notes, gstin, customer_type)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`, branchId, name.trim(), phone.trim(), email, address, dob || null, credit_limit, notes,
-    gstin, customer_type === 'business' ? 'business' : 'individual');
+  const id = await insert(`INSERT INTO customers (branch_id, name, phone, email, address, dob, credit_limit, notes, gstin, customer_type, discount_percent)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`, branchId, name.trim(), phone.trim(), email, address, dob || null, credit_limit, notes,
+    gstin, customer_type === 'business' ? 'business' : 'individual', pct);
   audit(req, 'create', 'customers', id, name);
   res.json({ id });
 }));
@@ -67,11 +69,12 @@ router.put('/:id(\\d+)', requirePermission('customers.manage'), wrap(async (req,
   await run(`UPDATE customers SET name=COALESCE(?,name), phone=COALESCE(?,phone), email=COALESCE(?,email),
     address=COALESCE(?,address), dob=COALESCE(?,dob), credit_limit=COALESCE(?,credit_limit),
     loyalty_points=COALESCE(?,loyalty_points), notes=COALESCE(?,notes), active=COALESCE(?,active),
-    gstin=COALESCE(?,gstin), customer_type=COALESCE(?,customer_type) WHERE id=?`,
+    gstin=COALESCE(?,gstin), customer_type=COALESCE(?,customer_type),
+    discount_percent=COALESCE(?,discount_percent) WHERE id=?`,
     f.name, f.phone, f.email, f.address, f.dob || null, f.credit_limit, f.loyalty_points, f.notes, f.active,
-    f.gstin, f.customer_type, req.params.id);
+    f.gstin, f.customer_type, f.discount_percent, req.params.id);
   auditDiff(req, 'customers', Number(req.params.id), before, f,
-    ['name', 'phone', 'email', 'address', 'credit_limit', 'notes', 'active', 'gstin', 'customer_type']);
+    ['name', 'phone', 'email', 'address', 'credit_limit', 'notes', 'active', 'gstin', 'customer_type', 'discount_percent']);
   res.json({ ok: true });
 }));
 
