@@ -78,11 +78,28 @@ app.use('/api/staff', authenticate, staffRoutes);
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'API endpoint not found' }));
 
-// Serve the built web app (single deployable unit)
+// Serve the built web app (single deployable unit).
+// Hashed assets are immutable → cache for a year; index.html must always be
+// revalidated so browsers pick up new deployments immediately.
 const webDist = path.join(__dirname, '..', '..', 'web', 'dist');
 if (fs.existsSync(webDist)) {
-  app.use(express.static(webDist));
-  app.get('*', (req, res) => res.sendFile(path.join(webDist, 'index.html')));
+  app.use(express.static(webDist, {
+    setHeaders: (res, filePath) => {
+      if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
+  // A missing asset (e.g. a stale cached page requesting a bundle from an old
+  // deployment) must get a clean 404 — never index.html served as JavaScript,
+  // which renders as a blank white page in the browser.
+  app.get('/assets/*', (req, res) => res.status(404).end());
+  app.get('*', (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(webDist, 'index.html'));
+  });
 }
 
 // Global error handler
