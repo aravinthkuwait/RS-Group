@@ -9,3 +9,4 @@
 - 2026-07-03: User requested always-on skills: caveman (exists), memory (created in-repo); graphify/headroom/ponytail not found anywhere.
 - 2026-07-03: Added PWA install (manifest+icons+sw) so staff install app from rs-group-production.up.railway.app; native APK needs Expo/EAS account, offered CI-built APK.
 - 2026-07-03: Prepped mobile/ for EAS: SDK52, expo-camera, eas.json (preview=APK), BASE_URL=Railway. Waiting on user's EAS projectId to replace placeholder in app.json.
+- 2026-07-03: EAS wired: project rs-group (owner aravinthkuwait, id 10c7a4a8-fd02-4bfb-9cba-aef7b84f579b), GitHub repo connected on expo.dev. User builds APK via Builds -> Build from GitHub, branch claude/rs-group-medical-saas-k2eivu, profile preview, base dir mobile.
