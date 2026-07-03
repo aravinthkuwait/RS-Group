@@ -9,6 +9,18 @@ export function audit(req, action, entity = '', entityId = null, details = '') {
     .catch(e => console.error('audit failed:', e.message));
 }
 
+// Audit an update with old -> new values for the fields that changed
+export function auditDiff(req, entity, id, before, after, fields) {
+  const changes = {};
+  for (const f of fields) {
+    const o = before?.[f], n = after?.[f];
+    if (n !== undefined && n !== null && String(o ?? '') !== String(n)) {
+      changes[f] = { old: o ?? '', new: n };
+    }
+  }
+  if (Object.keys(changes).length) audit(req, 'update', entity, id, JSON.stringify(changes));
+}
+
 // ---------- Notifications + real-time SSE bus ----------
 const sseClients = new Set();
 

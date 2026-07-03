@@ -40,7 +40,10 @@ export async function invoicePdf(res, sale, items, branch, customer, staff, prin
   doc.font('Helvetica-Bold').fillColor(BLUE).text('Invoice No:', 50, y + 8).font('Helvetica').fillColor('#000').text(sale.invoice_no, 110, y + 8);
   doc.font('Helvetica-Bold').fillColor(BLUE).text('Date:', 50, y + 22).font('Helvetica').fillColor('#000').text(sale.created_at, 110, y + 22);
   doc.font('Helvetica-Bold').fillColor(BLUE).text('Billed By:', 50, y + 36).font('Helvetica').fillColor('#000').text(staff?.name || '-', 110, y + 36);
-  doc.font('Helvetica-Bold').fillColor(BLUE).text('Customer:', 300, y + 8).font('Helvetica').fillColor('#000').text(customer ? `${customer.name} (${customer.phone})` : 'Walk-in Customer', 355, y + 8, { width: 190 });
+  doc.font('Helvetica-Bold').fillColor(BLUE).text('Customer:', 300, y + 8).font('Helvetica').fillColor('#000')
+    .text(customer
+      ? `${customer.name} (${customer.phone})${customer.gstin ? ' · GSTIN ' + customer.gstin : ''}`
+      : 'Walk-in Customer', 355, y + 8, { width: 190 });
   doc.font('Helvetica-Bold').fillColor(BLUE).text('Doctor:', 300, y + 22).font('Helvetica').fillColor('#000').text(sale.doctor_name || '-', 355, y + 22);
   doc.font('Helvetica-Bold').fillColor(BLUE).text('Status:', 300, y + 36).font('Helvetica').fillColor('#000').text(sale.status.toUpperCase(), 355, y + 36);
   y += 70;

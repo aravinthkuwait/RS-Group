@@ -64,14 +64,22 @@ export default function App() {
 
   const branchCtx = useMemo(() => {
     const isGlobal = user && ['super_admin', 'auditor'].includes(user.role);
+    const assigned = user?.branches || [];
+    const multi = !isGlobal && assigned.length > 1;
+    const options = isGlobal ? branches : assigned;
+    const effective = isGlobal
+      ? branchId
+      : (multi && branchId && assigned.some(b => b.id === Number(branchId)) ? branchId : (user?.branch_id || ''));
     return {
       branches,
-      branchId: isGlobal ? branchId : (user?.branch_id || ''),
+      options,
+      branchId: effective,
       setBranchId,
-      canSwitch: !!isGlobal,
+      canSwitch: !!isGlobal || multi,
+      allBranchesOption: !!isGlobal,
       branchName: isGlobal
         ? (branchId ? branches.find(b => b.id === Number(branchId))?.name : 'All Branches')
-        : user?.branch?.name,
+        : (options.find(b => b.id === Number(effective))?.name || user?.branch?.name),
     };
   }, [user, branches, branchId]);
 

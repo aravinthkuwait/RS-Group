@@ -2,9 +2,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, Modal, ScrollView } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { api, fmt } from '../api';
+import { useBranch } from '../../App';
 import { colors, shadow } from '../theme';
+import { BranchBar } from '../ui';
 
 export default function BillingScreen() {
+  const { branchId } = useBranch();
   const [q, setQ] = useState('');
   const [results, setResults] = useState([]);
   const [cart, setCart] = useState([]);
@@ -19,10 +22,10 @@ export default function BillingScreen() {
     clearTimeout(debounce.current);
     if (!q.trim()) { setResults([]); return; }
     debounce.current = setTimeout(() => {
-      api('/inventory/medicines/pos-search', { params: { q: q.trim() } })
+      api('/inventory/medicines/pos-search', { params: { q: q.trim(), branch_id: branchId } })
         .then(d => setResults(d.results)).catch(() => {});
     }, 200);
-  }, [q]);
+  }, [q, branchId]);
 
   const add = r => {
     setCart(c => {
@@ -36,7 +39,7 @@ export default function BillingScreen() {
   const onScan = ({ data }) => {
     if (!scanning) return;
     setScanning(false);
-    api('/inventory/medicines/pos-search', { params: { q: data } })
+    api('/inventory/medicines/pos-search', { params: { q: data, branch_id: branchId } })
       .then(d => d.results.length ? add(d.results[0]) : Alert.alert('Not found', `No in-stock medicine for barcode ${data}`))
       .catch(e => Alert.alert('Error', e.message));
   };
@@ -58,6 +61,7 @@ export default function BillingScreen() {
       const d = await api('/sales', {
         method: 'POST',
         body: {
+          branch_id: branchId || undefined,
           items: cart.map(i => ({ batch_id: i.batch_id, qty: i.qty })),
           customer_phone: phone || undefined,
           payment: { cash: 0, upi: 0, card: 0, credit: 0, [payMode]: total },
@@ -71,6 +75,7 @@ export default function BillingScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
+      <BranchBar />
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <TextInput
           style={{ flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.line }}

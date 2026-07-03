@@ -58,14 +58,14 @@ export async function runSeed({ force = false } = {}) {
 
     // ---------- Branches (3) ----------
     const branchesData = [
-      ['RSG-CHN', 'RS Medicals - Chennai Main', '12, Anna Salai, Mount Road', 'Chennai', '+91 98400 11111', 'chennai@rsgroup.in', '33AABCR1234F1Z5', 'TN-CHE-123456'],
-      ['RSG-MDU', 'RS Medicals - Madurai', '45, West Masi Street', 'Madurai', '+91 98400 22222', 'madurai@rsgroup.in', '33AABCR1234F2Z4', 'TN-MDU-223344'],
-      ['RSG-CBE', 'RS Medicals - Coimbatore', '78, DB Road, RS Puram', 'Coimbatore', '+91 98400 33333', 'coimbatore@rsgroup.in', '33AABCR1234F3Z3', 'TN-CBE-334455'],
+      ['RSG-CHN', 'RS Medicals - Chennai Main', '12, Anna Salai, Mount Road', 'Chennai', '+91 98400 11111', 'chennai@rsgroup.in', '33AABCR1234F1Z5', 'TN-CHE-123456', 'Priya Venkat'],
+      ['RSG-MDU', 'RS Medicals - Madurai', '45, West Masi Street', 'Madurai', '+91 98400 22222', 'madurai@rsgroup.in', '33AABCR1234F2Z4', 'TN-MDU-223344', 'Karthik Raja'],
+      ['RSG-CBE', 'RS Medicals - Coimbatore', '78, DB Road, RS Puram', 'Coimbatore', '+91 98400 33333', 'coimbatore@rsgroup.in', '33AABCR1234F3Z3', 'TN-CBE-334455', 'Meena Kumari'],
     ];
     const branchIds = [];
     for (const b of branchesData) {
-      branchIds.push(await db.insert(`INSERT INTO branches (code, name, address, city, phone, email, gstin, drug_license)
-        VALUES (?,?,?,?,?,?,?,?)`, ...b));
+      branchIds.push(await db.insert(`INSERT INTO branches (code, name, address, city, phone, email, gstin, drug_license, manager)
+        VALUES (?,?,?,?,?,?,?,?,?)`, ...b));
     }
 
     // ---------- Users (1 owner + 10 staff) ----------
@@ -82,6 +82,7 @@ export async function runSeed({ force = false } = {}) {
       ['Lakshmi Narayanan', 'lakshmi@rsgroup.in', '+91 90000 00009', 'accountant', branchIds[0]],
       ['Ganesh Moorthy', 'ganesh@rsgroup.in', '+91 90000 00010', 'delivery_staff', branchIds[0]],
       ['Anitha Ravi', 'auditor@rsgroup.in', '+91 90000 00011', 'auditor', null],
+      ['Fathima Begum', 'fathima@rsgroup.in', '+91 90000 00012', 'pharmacist', branchIds[0]],
     ];
     const userIds = [];
     for (const u of usersData) {
@@ -105,8 +106,8 @@ export async function runSeed({ force = false } = {}) {
     ];
     const supplierIds = [];
     for (const s of suppliersData) {
-      supplierIds.push(await db.insert(`INSERT INTO suppliers (name, contact_person, phone, email, address, gstin, opening_balance)
-        VALUES (?,?,?,?,?,?,?)`, ...s));
+      supplierIds.push(await db.insert(`INSERT INTO suppliers (name, contact_person, phone, email, address, gstin, opening_balance, payment_terms)
+        VALUES (?,?,?,?,?,?,?,?)`, ...s, s[6] > 0 ? 'Net 15 days' : 'Net 30 days'));
     }
 
     // ---------- Medicines (50) ----------
@@ -225,12 +226,14 @@ export async function runSeed({ force = false } = {}) {
     const firstNames = ['Ravi', 'Sita', 'Kumar', 'Anjali', 'Vijay', 'Deepa', 'Mohan', 'Fatima', 'Senthil', 'Rekha', 'Ibrahim', 'Janaki', 'Prakash', 'Nithya', 'Saravanan', 'Kala', 'David', 'Uma', 'Rajesh', 'Bhavani', 'Mani', 'Shalini', 'Gopal', 'Radha'];
     const customerIds = [];
     for (let i = 0; i < firstNames.length; i++) {
-      customerIds.push(await db.insert(`INSERT INTO customers (branch_id, name, phone, email, address, loyalty_points, credit_limit)
-        VALUES (?,?,?,'',?,?,?)`,
+      customerIds.push(await db.insert(`INSERT INTO customers (branch_id, name, phone, email, address, loyalty_points, credit_limit, gstin, customer_type)
+        VALUES (?,?,?,'',?,?,?,?,?)`,
         branchIds[i % 3], `${firstNames[i]} ${pick(['S', 'K', 'M', 'R', 'V'])}`,
         `+91 9${String(500000000 + i * 1237913).slice(0, 9)}`,
         pick(['Anna Nagar', 'KK Nagar', 'Gandhi Street', 'Bazaar Road', 'Lake View Colony']),
-        randInt(0, 250), i % 5 === 0 ? 5000 : 0));
+        randInt(0, 250), i % 5 === 0 ? 5000 : 0,
+        i % 5 === 0 ? `33AACC${String(1000 + i)}X1Z${i % 10}` : '',
+        i % 5 === 0 ? 'business' : 'individual'));
     }
 
     // ---------- Sales (100 bills over last 30 days) ----------

@@ -2,8 +2,9 @@ import React, { useCallback, useState } from 'react';
 import { ScrollView, View, Text, RefreshControl, TouchableOpacity } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { api, fmt } from '../api';
-import { useAuth, can } from '../../App';
+import { useAuth, useBranch, can } from '../../App';
 import { colors, shadow } from '../theme';
+import { BranchBar } from '../ui';
 
 function StatCard({ label, value, sub, accent }) {
   return (
@@ -17,14 +18,15 @@ function StatCard({ label, value, sub, accent }) {
 
 export default function HomeScreen({ navigation }) {
   const { user } = useAuth();
+  const { branchId } = useBranch();
   const [d, setD] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [unread, setUnread] = useState(0);
 
   const load = useCallback(() => {
-    api('/reports/dashboard').then(setD).catch(() => {});
+    api('/reports/dashboard', { params: { branch_id: branchId } }).then(setD).catch(() => {});
     api('/staff/notifications').then(x => setUnread(x.unread)).catch(() => {});
-  }, []);
+  }, [branchId]);
   useFocusEffect(load);
 
   return (
@@ -48,6 +50,8 @@ export default function HomeScreen({ navigation }) {
           )}
         </TouchableOpacity>
       </View>
+
+      <BranchBar />
 
       {can(user, 'dashboard.view') && d && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>

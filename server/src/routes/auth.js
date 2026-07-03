@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { all, get, run } from '../db.js';
-import { authenticate, signToken, permissionsForUser } from '../auth.js';
+import { authenticate, signToken, permissionsForUser, allowedBranchIds } from '../auth.js';
 import { audit } from '../util.js';
 
 const router = Router();
@@ -30,7 +30,8 @@ router.post('/login', wrap(async (req, res) => {
   if (branch_code) {
     const branch = await get('SELECT * FROM branches WHERE code = ? AND active = 1', branch_code.trim().toUpperCase());
     if (!branch) return fail('Invalid branch code');
-    if (!['super_admin', 'auditor'].includes(user.role) && user.branch_id !== branch.id) {
+    const allowedForLogin = allowedBranchIds(user);
+    if (allowedForLogin && !allowedForLogin.includes(branch.id)) {
       return fail('You are not assigned to this branch');
     }
   }
@@ -43,9 +44,13 @@ router.post('/login', wrap(async (req, res) => {
 
   const token = signToken(user, sessionId);
   const branch = user.branch_id ? await get('SELECT id, code, name FROM branches WHERE id = ?', user.branch_id) : null;
+  const allowed = allowedBranchIds(user);
+  const branches = allowed
+    ? await all(`SELECT id, code, name FROM branches WHERE active = 1 AND id IN (${allowed.map(Number).join(',') || 0}) ORDER BY id`)
+    : [];
   const perms = await permissionsForUser(user);
   delete user.password_hash; delete user.reset_token; delete user.reset_token_expires;
-  res.json({ token, user: { ...user, perms, branch } });
+  res.json({ token, user: { ...user, perms, branch, branches } });
 }));
 
 router.post('/forgot-password', wrap(async (req, res) => {
@@ -78,7 +83,11 @@ router.use(authenticate);
 
 router.get('/me', wrap(async (req, res) => {
   const branch = req.user.branch_id ? await get('SELECT id, code, name FROM branches WHERE id = ?', req.user.branch_id) : null;
-  res.json({ user: { ...req.user, branch } });
+  const allowed = allowedBranchIds(req.user);
+  const branches = allowed
+    ? await all(`SELECT id, code, name FROM branches WHERE active = 1 AND id IN (${allowed.map(Number).join(',') || 0}) ORDER BY id`)
+    : [];
+  res.json({ user: { ...req.user, branch, branches } });
 }));
 
 router.post('/change-password', wrap(async (req, res) => {

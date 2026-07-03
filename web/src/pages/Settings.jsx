@@ -241,6 +241,7 @@ function Branches() {
         { key: 'code', label: 'Code', render: r => <Badge color="blue">{r.code}</Badge> },
         { key: 'name', label: 'Name', render: r => <b>{r.name}</b> },
         { key: 'city', label: 'City' },
+        { key: 'manager', label: 'Manager' },
         { key: 'phone', label: 'Phone' },
         { key: 'gstin', label: 'GSTIN' },
         { key: 'active', label: 'Status', render: r => <Badge color={r.active ? 'green' : 'red'}>{r.active ? 'active' : 'inactive'}</Badge> },
@@ -263,7 +264,7 @@ function BranchModal({ b, onClose, onSaved }) {
   const [f, setF] = useState({
     code: b.code || '', name: b.name || '', address: b.address || '', city: b.city || '',
     phone: b.phone || '', email: b.email || '', gstin: b.gstin || '', drug_license: b.drug_license || '',
-    active: b.active ?? 1,
+    manager: b.manager || '', active: b.active ?? 1,
   });
   const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
   const save = async () => {
@@ -289,6 +290,7 @@ function BranchModal({ b, onClose, onSaved }) {
       <div className="form-row">
         <Field label="GSTIN" value={f.gstin} onChange={set('gstin')} />
         <Field label="Drug license" value={f.drug_license} onChange={set('drug_license')} />
+        <Field label="Branch manager" value={f.manager} onChange={set('manager')} />
         {b.id && (
           <Field label="Status">
             <select value={f.active} onChange={set('active')}><option value={1}>Active</option><option value={0}>Inactive</option></select>
@@ -366,9 +368,28 @@ function Audit() {
         { key: 'branch_name', label: 'Branch' },
         { key: 'action', label: 'Action', render: r => <Badge color="blue">{r.action}</Badge> },
         { key: 'entity', label: 'Entity', render: r => `${r.entity}${r.entity_id ? ' #' + r.entity_id : ''}` },
-        { key: 'details', label: 'Details' },
+        { key: 'details', label: 'Details (old → new)', render: r => <AuditDetails text={r.details} /> },
         { key: 'ip', label: 'IP' },
       ]} rows={rows} keyFn={r => r.id} />
     </Card>
   );
+}
+
+function AuditDetails({ text }) {
+  if (!text) return null;
+  try {
+    const obj = JSON.parse(text);
+    if (obj && typeof obj === 'object') {
+      return (
+        <div>
+          {Object.entries(obj).map(([field, v]) => (
+            <div key={field} style={{ fontSize: '.8rem' }}>
+              <b>{field}</b>: <span className="muted">{String(v.old ?? '')}</span> → {String(v.new ?? '')}
+            </div>
+          ))}
+        </div>
+      );
+    }
+  } catch { /* plain text */ }
+  return <span>{text}</span>;
 }

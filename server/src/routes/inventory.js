@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { all, get, run, insert, tx } from '../db.js';
-import { requirePermission, scopeBranch, writeBranch } from '../auth.js';
-import { audit, notify, checkStockAlerts, broadcast } from '../util.js';
+import { requirePermission, scopeBranch, writeBranch, canAccessBranch } from '../auth.js';
+import { audit, auditDiff, notify, checkStockAlerts, broadcast } from '../util.js';
 
 const router = Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -37,10 +37,10 @@ router.get('/medicines/pos-search', requirePermission('billing.create', 'invento
            b.id AS batch_id, b.batch_no, b.expiry_date, b.mrp, b.selling_price, b.qty
     FROM medicines m
     JOIN stock_batches b ON b.medicine_id = m.id AND b.branch_id = ? AND b.qty > 0
-    WHERE m.active = 1 AND (m.name ILIKE ? OR m.generic_name ILIKE ? OR m.barcode = ? OR b.batch_no = ?)
+    WHERE m.active = 1 AND (m.name ILIKE ? OR m.generic_name ILIKE ? OR m.category ILIKE ? OR m.barcode = ? OR b.batch_no = ?)
       AND b.expiry_date >= CURRENT_DATE
     ORDER BY m.name, b.expiry_date LIMIT 30`,
-    branchId, `%${q}%`, `%${q}%`, q, q);
+    branchId, `%${q}%`, `%${q}%`, `%${q}%`, q, q);
   res.json({ results: rows });
 }));
 
@@ -57,6 +57,7 @@ router.post('/medicines', requirePermission('inventory.edit'), wrap(async (req, 
 
 router.put('/medicines/:id', requirePermission('inventory.edit'), wrap(async (req, res) => {
   const f = req.body || {};
+  const before = await get('SELECT * FROM medicines WHERE id = ?', req.params.id);
   await run(`UPDATE medicines SET name=COALESCE(?,name), generic_name=COALESCE(?,generic_name),
     category=COALESCE(?,category), brand=COALESCE(?,brand), barcode=COALESCE(?,barcode), hsn=COALESCE(?,hsn),
     gst_rate=COALESCE(?,gst_rate), unit=COALESCE(?,unit), rack_location=COALESCE(?,rack_location),
@@ -64,7 +65,8 @@ router.put('/medicines/:id', requirePermission('inventory.edit'), wrap(async (re
     WHERE id=?`,
     f.name, f.generic_name, f.category, f.brand, f.barcode, f.hsn, f.gst_rate, f.unit,
     f.rack_location, f.min_stock, f.prescription_required, f.active, req.params.id);
-  audit(req, 'update', 'medicines', Number(req.params.id));
+  auditDiff(req, 'medicines', Number(req.params.id), before, f,
+    ['name', 'generic_name', 'category', 'brand', 'barcode', 'gst_rate', 'rack_location', 'min_stock', 'active']);
   res.json({ ok: true });
 }));
 
@@ -148,7 +150,7 @@ router.post('/adjustments', requirePermission('inventory.adjust'), wrap(async (r
   if (!batch_id || !qty_change || !reason) return res.status(400).json({ error: 'Batch, quantity change and reason are required' });
   const batch = await get('SELECT * FROM stock_batches WHERE id = ?', batch_id);
   if (!batch) return res.status(404).json({ error: 'Batch not found' });
-  if (!['super_admin'].includes(req.user.role) && batch.branch_id !== req.user.branch_id) {
+  if (!canAccessBranch(req.user, batch.branch_id)) {
     return res.status(403).json({ error: 'Batch belongs to another branch' });
   }
   const change = Number(qty_change);
@@ -232,7 +234,7 @@ router.post('/transfers/:id/receive', requirePermission('inventory.transfer'), w
   const t = await get('SELECT * FROM stock_transfers WHERE id = ?', req.params.id);
   if (!t) return res.status(404).json({ error: 'Transfer not found' });
   if (t.status !== 'pending') return res.status(400).json({ error: `Transfer already ${t.status}` });
-  if (req.user.role !== 'super_admin' && req.user.branch_id !== t.to_branch_id) {
+  if (req.user.role !== 'super_admin' && !canAccessBranch(req.user, t.to_branch_id)) {
     return res.status(403).json({ error: 'Only the destination branch can receive this transfer' });
   }
   const items = await all('SELECT * FROM stock_transfer_items WHERE transfer_id = ?', t.id);
@@ -259,7 +261,7 @@ router.post('/transfers/:id/receive', requirePermission('inventory.transfer'), w
 router.post('/transfers/:id/cancel', requirePermission('inventory.transfer'), wrap(async (req, res) => {
   const t = await get('SELECT * FROM stock_transfers WHERE id = ?', req.params.id);
   if (!t || t.status !== 'pending') return res.status(400).json({ error: 'Only pending transfers can be cancelled' });
-  if (req.user.role !== 'super_admin' && req.user.branch_id !== t.from_branch_id) {
+  if (req.user.role !== 'super_admin' && !canAccessBranch(req.user, t.from_branch_id)) {
     return res.status(403).json({ error: 'Only the source branch can cancel this transfer' });
   }
   const items = await all('SELECT * FROM stock_transfer_items WHERE transfer_id = ?', t.id);

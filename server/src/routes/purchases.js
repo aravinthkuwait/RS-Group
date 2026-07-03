@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { all, get, run, insert, tx } from '../db.js';
 import { requirePermission, scopeBranch, writeBranch } from '../auth.js';
-import { audit, notify, round2, supplierBalance, today } from '../util.js';
+import { audit, auditDiff, notify, round2, supplierBalance, today } from '../util.js';
 
 const router = Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -15,21 +15,26 @@ router.get('/suppliers', requirePermission('purchases.view', 'suppliers.manage',
 }));
 
 router.post('/suppliers', requirePermission('suppliers.manage'), wrap(async (req, res) => {
-  const { name, contact_person = '', phone = '', email = '', address = '', gstin = '', drug_license = '', opening_balance = 0 } = req.body || {};
+  const { name, contact_person = '', phone = '', email = '', address = '', gstin = '', drug_license = '', opening_balance = 0, payment_terms = '' } = req.body || {};
   if (!name) return res.status(400).json({ error: 'Supplier name is required' });
-  const id = await insert(`INSERT INTO suppliers (name, contact_person, phone, email, address, gstin, drug_license, opening_balance)
-    VALUES (?,?,?,?,?,?,?,?)`, name.trim(), contact_person, phone, email, address, gstin, drug_license, opening_balance);
+  const id = await insert(`INSERT INTO suppliers (name, contact_person, phone, email, address, gstin, drug_license, opening_balance, payment_terms)
+    VALUES (?,?,?,?,?,?,?,?,?)`, name.trim(), contact_person, phone, email, address, gstin, drug_license, opening_balance, payment_terms);
   audit(req, 'create', 'suppliers', id, name);
   res.json({ id });
 }));
 
 router.put('/suppliers/:id', requirePermission('suppliers.manage'), wrap(async (req, res) => {
   const f = req.body || {};
+  const before = await get('SELECT * FROM suppliers WHERE id = ?', req.params.id);
+  if (!before) return res.status(404).json({ error: 'Supplier not found' });
   await run(`UPDATE suppliers SET name=COALESCE(?,name), contact_person=COALESCE(?,contact_person),
     phone=COALESCE(?,phone), email=COALESCE(?,email), address=COALESCE(?,address), gstin=COALESCE(?,gstin),
-    drug_license=COALESCE(?,drug_license), opening_balance=COALESCE(?,opening_balance), active=COALESCE(?,active) WHERE id=?`,
-    f.name, f.contact_person, f.phone, f.email, f.address, f.gstin, f.drug_license, f.opening_balance, f.active, req.params.id);
-  audit(req, 'update', 'suppliers', Number(req.params.id));
+    drug_license=COALESCE(?,drug_license), opening_balance=COALESCE(?,opening_balance),
+    payment_terms=COALESCE(?,payment_terms), active=COALESCE(?,active) WHERE id=?`,
+    f.name, f.contact_person, f.phone, f.email, f.address, f.gstin, f.drug_license, f.opening_balance,
+    f.payment_terms, f.active, req.params.id);
+  auditDiff(req, 'suppliers', Number(req.params.id), before, f,
+    ['name', 'contact_person', 'phone', 'email', 'address', 'gstin', 'opening_balance', 'payment_terms', 'active']);
   res.json({ ok: true });
 }));
 

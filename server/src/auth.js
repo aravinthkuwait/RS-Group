@@ -4,7 +4,7 @@ import { all, get, run } from './db.js';
 export const JWT_SECRET = process.env.JWT_SECRET || 'rs-group-dev-secret-change-in-production';
 
 export const ROLES = [
-  'super_admin', 'branch_admin', 'branch_manager', 'billing_staff',
+  'super_admin', 'branch_admin', 'branch_manager', 'pharmacist', 'billing_staff',
   'inventory_staff', 'accountant', 'delivery_staff', 'auditor',
 ];
 
@@ -34,6 +34,12 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     'customers.view', 'customers.manage', 'expenses.view', 'expenses.manage', 'accounts.manage',
     'reports.view', 'reports.export', 'delivery.view', 'delivery.update',
     'tasks.view', 'tasks.manage', 'attendance.self', 'attendance.manage',
+  ],
+  pharmacist: [
+    'dashboard.view', 'billing.create', 'billing.discount', 'billing.view', 'billing.return',
+    'inventory.view', 'inventory.edit', 'inventory.adjust',
+    'customers.view', 'customers.manage', 'purchases.view',
+    'tasks.view', 'attendance.self',
   ],
   billing_staff: [
     'dashboard.view', 'billing.create', 'billing.view', 'billing.return',
@@ -113,15 +119,35 @@ export function requirePermission(...permissions) {
   };
 }
 
-// Branch scoping: super_admin & auditor see all branches; everyone else is locked to their branch.
+// Branches a user may work in: primary branch + any extra assigned branches.
+// null = all branches (owner / auditor).
+export function allowedBranchIds(user) {
+  if (user.role === 'super_admin' || user.role === 'auditor') return null;
+  let extra = [];
+  try { extra = JSON.parse(user.extra_branches || '[]'); } catch { /* legacy */ }
+  return [...new Set([user.branch_id, ...extra.map(Number)].filter(Boolean))];
+}
+
+export function canAccessBranch(user, branchId) {
+  const allowed = allowedBranchIds(user);
+  return !allowed || allowed.includes(Number(branchId));
+}
+
+// Branch scoping for reads: honour a requested branch only if the user is
+// assigned to it; otherwise fall back to their primary branch.
 export function scopeBranch(req) {
   const requested = req.query.branch_id ? Number(req.query.branch_id) : null;
-  if (req.user.role === 'super_admin' || req.user.role === 'auditor') return requested; // null = all
+  const allowed = allowedBranchIds(req.user);
+  if (!allowed) return requested; // owner/auditor: null = all
+  if (requested && allowed.includes(requested)) return requested;
   return req.user.branch_id;
 }
 
-// For writes: resolve the branch a mutation applies to, enforcing branch lock.
+// For writes: resolve the branch a mutation applies to, enforcing assignment.
 export function writeBranch(req, bodyBranchId) {
-  if (req.user.role === 'super_admin') return bodyBranchId || req.user.branch_id;
+  const requested = bodyBranchId ? Number(bodyBranchId) : null;
+  const allowed = allowedBranchIds(req.user);
+  if (!allowed) return requested || req.user.branch_id;
+  if (requested && allowed.includes(requested)) return requested;
   return req.user.branch_id;
 }

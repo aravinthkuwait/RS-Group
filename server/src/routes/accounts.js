@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { all, get, run, insert } from '../db.js';
-import { requirePermission, scopeBranch, writeBranch } from '../auth.js';
+import { requirePermission, scopeBranch, writeBranch, canAccessBranch } from '../auth.js';
 import { audit, notify, round2, today } from '../util.js';
 
 const router = Router();
@@ -36,7 +36,7 @@ router.post('/expenses', requirePermission('expenses.manage'), wrap(async (req, 
 router.delete('/expenses/:id', requirePermission('expenses.manage'), wrap(async (req, res) => {
   const e = await get('SELECT * FROM expenses WHERE id = ?', req.params.id);
   if (!e) return res.status(404).json({ error: 'Expense not found' });
-  if (req.user.role !== 'super_admin' && e.branch_id !== req.user.branch_id) return res.status(403).json({ error: 'Expense belongs to another branch' });
+  if (!canAccessBranch(req.user, e.branch_id)) return res.status(403).json({ error: 'Expense belongs to another branch' });
   await run('DELETE FROM expenses WHERE id = ?', req.params.id);
   audit(req, 'delete', 'expenses', Number(req.params.id), `${e.category} ₹${e.amount}`);
   res.json({ ok: true });

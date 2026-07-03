@@ -54,6 +54,7 @@ export default function Customers() {
           <Table columns={[
             { key: 'name', label: 'Name', render: r => <a href="#" onClick={e => { e.preventDefault(); openProfile(r); }}><b>{r.name}</b></a> },
             { key: 'phone', label: 'Mobile' },
+            { key: 'customer_type', label: 'Type', render: r => <Badge color={r.customer_type === 'business' ? 'orange' : 'gray'}>{r.customer_type || 'individual'}</Badge> },
             { key: 'branch_name', label: 'Branch' },
             { key: 'total_bills', label: 'Bills', num: true },
             { key: 'total_spent', label: 'Total spent', num: true, render: r => fmt(r.total_spent) },
@@ -123,6 +124,7 @@ function CustomerModal({ c, onClose, onSaved }) {
   const [f, setF] = useState({
     name: c.name || '', phone: c.phone || '', email: c.email || '', address: c.address || '',
     dob: c.dob || '', credit_limit: c.credit_limit || 0, notes: c.notes || '',
+    gstin: c.gstin || '', customer_type: c.customer_type || 'individual',
   });
   const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
   const save = async () => {
@@ -139,6 +141,15 @@ function CustomerModal({ c, onClose, onSaved }) {
       <div className="form-row">
         <Field label="Name *" value={f.name} onChange={set('name')} />
         <Field label="Mobile *" value={f.phone} onChange={set('phone')} />
+      </div>
+      <div className="form-row">
+        <Field label="Customer type">
+          <select value={f.customer_type} onChange={set('customer_type')}>
+            <option value="individual">Individual</option>
+            <option value="business">Business</option>
+          </select>
+        </Field>
+        <Field label="GST number (business)" value={f.gstin} onChange={set('gstin')} placeholder="optional" />
       </div>
       <div className="form-row">
         <Field label="Email" value={f.email} onChange={set('email')} />

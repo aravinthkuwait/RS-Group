@@ -1,20 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, FlatList, TouchableOpacity, Alert } from 'react-native';
 import { api, fmt } from '../api';
-import { useAuth, can } from '../../App';
+import { useAuth, useBranch, can } from '../../App';
 import { colors, shadow } from '../theme';
+import { BranchBar } from '../ui';
 
 export default function StockScreen() {
   const { user } = useAuth();
+  const { branchId } = useBranch();
   const [q, setQ] = useState('');
   const [rows, setRows] = useState([]);
   const debounce = useRef(null);
 
-  const load = () => api('/inventory/stock', { params: { q } }).then(d => setRows(d.stock)).catch(() => {});
+  const load = () => api('/inventory/stock', { params: { q, branch_id: branchId } }).then(d => setRows(d.stock)).catch(() => {});
   useEffect(() => {
     clearTimeout(debounce.current);
     debounce.current = setTimeout(load, 250);
-  }, [q]);
+  }, [q, branchId]);
 
   const adjust = item => {
     if (!can(user, 'inventory.adjust')) return;
@@ -34,6 +36,7 @@ export default function StockScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
+      <BranchBar />
       <TextInput
         style={{ backgroundColor: '#fff', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.line, marginBottom: 10 }}
         placeholder="Search stock by medicine or batch…" value={q} onChangeText={setQ} />

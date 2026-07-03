@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { all, get, run, insert, tx } from '../db.js';
-import { requirePermission, ROLES, ALL_PERMISSIONS } from '../auth.js';
-import { audit, getSetting, setSetting } from '../util.js';
+import { requirePermission, ROLES, ALL_PERMISSIONS, canAccessBranch } from '../auth.js';
+import { audit, auditDiff, getSetting, setSetting } from '../util.js';
 
 const router = Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -14,11 +14,11 @@ router.get('/branches', wrap(async (req, res) => {
 }));
 
 router.post('/branches', requirePermission('branches.manage'), wrap(async (req, res) => {
-  const { code, name, address = '', city = '', phone = '', email = '', gstin = '', drug_license = '' } = req.body || {};
+  const { code, name, address = '', city = '', phone = '', email = '', gstin = '', drug_license = '', manager = '' } = req.body || {};
   if (!code || !name) return res.status(400).json({ error: 'Branch code and name are required' });
   try {
-    const id = await insert(`INSERT INTO branches (code, name, address, city, phone, email, gstin, drug_license)
-      VALUES (?,?,?,?,?,?,?,?)`, code.trim().toUpperCase(), name.trim(), address, city, phone, email, gstin, drug_license);
+    const id = await insert(`INSERT INTO branches (code, name, address, city, phone, email, gstin, drug_license, manager)
+      VALUES (?,?,?,?,?,?,?,?,?)`, code.trim().toUpperCase(), name.trim(), address, city, phone, email, gstin, drug_license, manager);
     audit(req, 'create', 'branches', id, name);
     res.json({ id });
   } catch (e) {
@@ -27,12 +27,16 @@ router.post('/branches', requirePermission('branches.manage'), wrap(async (req, 
 }));
 
 router.put('/branches/:id', requirePermission('branches.manage'), wrap(async (req, res) => {
-  const { name, address, city, phone, email, gstin, drug_license, active } = req.body || {};
+  const { name, address, city, phone, email, gstin, drug_license, manager, active } = req.body || {};
+  const before = await get('SELECT * FROM branches WHERE id = ?', req.params.id);
+  if (!before) return res.status(404).json({ error: 'Branch not found' });
   await run(`UPDATE branches SET name=COALESCE(?,name), address=COALESCE(?,address), city=COALESCE(?,city),
     phone=COALESCE(?,phone), email=COALESCE(?,email), gstin=COALESCE(?,gstin),
-    drug_license=COALESCE(?,drug_license), active=COALESCE(?,active) WHERE id=?`,
-    name, address, city, phone, email, gstin, drug_license, active, req.params.id);
-  audit(req, 'update', 'branches', Number(req.params.id));
+    drug_license=COALESCE(?,drug_license), manager=COALESCE(?,manager), active=COALESCE(?,active) WHERE id=?`,
+    name, address, city, phone, email, gstin, drug_license, manager, active, req.params.id);
+  auditDiff(req, 'branches', Number(req.params.id), before,
+    { name, address, city, phone, email, gstin, drug_license, manager, active },
+    ['name', 'address', 'city', 'phone', 'email', 'gstin', 'drug_license', 'manager', 'active']);
   res.json({ ok: true });
 }));
 
@@ -61,14 +65,17 @@ router.get('/users', requirePermission('staff.manage', 'tasks.manage'), wrap(asy
 }));
 
 router.post('/users', requirePermission('staff.manage'), wrap(async (req, res) => {
-  const { name, email, phone = '', password, role, branch_id } = req.body || {};
+  const { name, email, phone = '', password, role, branch_id, extra_branches = [] } = req.body || {};
   if (!name || !email || !password || !role) return res.status(400).json({ error: 'Name, email, password and role are required' });
   if (!ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (role === 'super_admin' && req.user.role !== 'super_admin') return res.status(403).json({ error: 'Only the owner can create super admin accounts' });
   const bid = req.user.role === 'super_admin' ? (branch_id || null) : req.user.branch_id;
+  const extras = req.user.role === 'super_admin'
+    ? [...new Set((extra_branches || []).map(Number).filter(b => b && b !== Number(bid)))]
+    : [];
   try {
-    const id = await insert(`INSERT INTO users (name, email, phone, password_hash, role, branch_id)
-      VALUES (?,?,?,?,?,?)`, name.trim(), email.trim().toLowerCase(), phone, bcrypt.hashSync(password, 10), role, bid);
+    const id = await insert(`INSERT INTO users (name, email, phone, password_hash, role, branch_id, extra_branches)
+      VALUES (?,?,?,?,?,?,?)`, name.trim(), email.trim().toLowerCase(), phone, bcrypt.hashSync(password, 10), role, bid, JSON.stringify(extras));
     audit(req, 'create', 'users', id, `${name} (${role})`);
     res.json({ id });
   } catch (e) {
@@ -83,23 +90,60 @@ router.put('/users/:id', requirePermission('staff.manage'), wrap(async (req, res
     if (target.branch_id !== req.user.branch_id) return res.status(403).json({ error: 'User belongs to another branch' });
     if (target.role === 'super_admin' || req.body.role === 'super_admin') return res.status(403).json({ error: 'Not allowed' });
   }
-  const { name, phone, role, branch_id, active, password, extra_permissions, denied_permissions } = req.body || {};
+  const { name, phone, role, branch_id, active, password, extra_permissions, denied_permissions, extra_branches } = req.body || {};
   if (role && !ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  const extras = req.user.role === 'super_admin' && Array.isArray(extra_branches)
+    ? JSON.stringify([...new Set(extra_branches.map(Number).filter(b => b && b !== Number(branch_id ?? target.branch_id)))])
+    : null;
   await run(`UPDATE users SET name=COALESCE(?,name), phone=COALESCE(?,phone), role=COALESCE(?,role),
     branch_id=COALESCE(?,branch_id), active=COALESCE(?,active),
-    extra_permissions=COALESCE(?,extra_permissions), denied_permissions=COALESCE(?,denied_permissions) WHERE id=?`,
+    extra_permissions=COALESCE(?,extra_permissions), denied_permissions=COALESCE(?,denied_permissions),
+    extra_branches=COALESCE(?,extra_branches) WHERE id=?`,
     name, phone, role,
     req.user.role === 'super_admin' ? branch_id : null,
     active,
     extra_permissions ? JSON.stringify(extra_permissions) : null,
     denied_permissions ? JSON.stringify(denied_permissions) : null,
+    extras,
     req.params.id);
   if (password) {
     await run('UPDATE users SET password_hash = ? WHERE id = ?', bcrypt.hashSync(password, 10), req.params.id);
     await run('UPDATE sessions SET revoked = 1 WHERE user_id = ?', req.params.id);
   }
   if (active === 0) await run('UPDATE sessions SET revoked = 1 WHERE user_id = ?', req.params.id);
-  audit(req, 'update', 'users', Number(req.params.id));
+  auditDiff(req, 'users', Number(req.params.id), target,
+    { name, phone, role, branch_id, active, extra_branches: extras },
+    ['name', 'phone', 'role', 'branch_id', 'active', 'extra_branches']);
+  res.json({ ok: true });
+}));
+
+// Delete a user (falls back to deactivate when history references them)
+router.delete('/users/:id', requirePermission('staff.manage'), wrap(async (req, res) => {
+  const target = await get('SELECT * FROM users WHERE id = ?', req.params.id);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+  if (target.id === req.user.id) return res.status(400).json({ error: 'You cannot delete your own account' });
+  if (target.role === 'super_admin' && req.user.role !== 'super_admin') return res.status(403).json({ error: 'Not allowed' });
+  if (req.user.role !== 'super_admin' && !canAccessBranch(req.user, target.branch_id)) {
+    return res.status(403).json({ error: 'User belongs to another branch' });
+  }
+  const referenced = await get(
+    `SELECT 1 FROM sales WHERE staff_id = ? OR delivery_staff_id = ?
+     UNION SELECT 1 FROM purchases WHERE created_by = ?
+     UNION SELECT 1 FROM audit_logs WHERE user_id = ? LIMIT 1`,
+    target.id, target.id, target.id, target.id);
+  if (referenced) {
+    await run('UPDATE users SET active = 0 WHERE id = ?', target.id);
+    await run('UPDATE sessions SET revoked = 1 WHERE user_id = ?', target.id);
+    audit(req, 'deactivate', 'users', target.id, `${target.name} has history; deactivated instead of deleted`);
+    return res.json({ ok: true, deactivated: true, message: 'User has billing/history records, so the account was deactivated instead of deleted.' });
+  }
+  await run('DELETE FROM sessions WHERE user_id = ?', target.id);
+  await run('DELETE FROM login_history WHERE user_id = ?', target.id);
+  await run('DELETE FROM staff_attendance WHERE user_id = ?', target.id);
+  await run('UPDATE tasks SET assigned_to = NULL WHERE assigned_to = ?', target.id);
+  await run('UPDATE tasks SET created_by = NULL WHERE created_by = ?', target.id);
+  await run('DELETE FROM users WHERE id = ?', target.id);
+  audit(req, 'delete', 'users', target.id, target.name);
   res.json({ ok: true });
 }));
 

@@ -7,8 +7,11 @@ export default function MoreScreen({ navigation }) {
   const { user, logout } = useAuth();
   const items = [
     can(user, 'inventory.view') && { t: '⏳ Expiry Check', nav: 'Expiry' },
-    can(user, 'customers.view') && { t: '👥 Customer Search', nav: 'Customers' },
+    can(user, 'customers.view') && { t: '👥 Customers', nav: 'Customers' },
+    can(user, 'reports.view') && { t: '📑 Reports', nav: 'Reports' },
     can(user, 'delivery.view') && { t: '🛵 Deliveries', nav: 'Deliveries' },
+    can(user, 'staff.manage') && { t: '🧑‍⚕️ Users & Staff', nav: 'AdminUsers' },
+    can(user, 'branches.manage') && { t: '🏬 Branches', nav: 'AdminBranches' },
     { t: '📋 My Tasks', nav: 'Tasks' },
     { t: '🕐 Attendance Check-in/out', nav: 'Attendance' },
     { t: '🔔 Notifications', nav: 'Notifications' },

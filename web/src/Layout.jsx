@@ -32,7 +32,7 @@ const TITLES = {
 
 export default function Layout() {
   const { user, logout } = useAuth();
-  const { branches, branchId, setBranchId, canSwitch, branchName } = useBranch();
+  const { options = [], branchId, setBranchId, canSwitch, allBranchesOption, branchName } = useBranch();
   const location = useLocation();
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -102,11 +102,13 @@ export default function Layout() {
       <div className="main">
         <header className="topbar">
           <button className="menu-btn" onClick={() => setOpen(o => !o)}>☰</button>
+          <img src="/rs-group-logo.jpg" alt="RS Group" className="topbar-logo" />
+          <span className="topbar-brand">RS Group</span>
           <h1>{TITLES[location.pathname] || 'RS Group'}</h1>
           {canSwitch ? (
             <select className="input" style={{ width: 190 }} value={branchId} onChange={e => setBranchId(e.target.value)}>
-              <option value="">All Branches</option>
-              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              {allBranchesOption && <option value="">All Branches</option>}
+              {options.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           ) : (
             <span className="badge blue">{branchName || 'Head Office'}</span>

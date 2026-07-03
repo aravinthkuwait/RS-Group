@@ -64,8 +64,15 @@ function UserModal({ u, roles, branches, me, onClose, onSaved }) {
   const [f, setF] = useState({
     name: u.name || '', email: u.email || '', phone: u.phone || '', role: u.role || 'billing_staff',
     branch_id: u.branch_id || '', password: '', active: u.active ?? 1,
+    extra_branches: (() => { try { return JSON.parse(u.extra_branches || '[]'); } catch { return []; } })(),
   });
   const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
+  const toggleExtra = id => setF(x => ({
+    ...x,
+    extra_branches: x.extra_branches.includes(id)
+      ? x.extra_branches.filter(b => b !== id)
+      : [...x.extra_branches, id],
+  }));
   const save = async () => {
     try {
       const body = { ...f, branch_id: f.branch_id ? Number(f.branch_id) : null, active: Number(f.active) };
@@ -75,9 +82,18 @@ function UserModal({ u, roles, branches, me, onClose, onSaved }) {
       toast('User saved', 'green'); onSaved();
     } catch (e) { toast(e.message, 'red'); }
   };
+  const del = async () => {
+    if (!confirm(`Delete user ${u.name}? If they have billing history the account is deactivated instead.`)) return;
+    try {
+      const r = await api(`/admin/users/${u.id}`, { method: 'DELETE' });
+      toast(r.message || 'User deleted', 'green'); onSaved();
+    } catch (e) { toast(e.message, 'red'); }
+  };
   return (
     <Modal title={u.id ? `Edit ${u.name}` : 'Add user'} onClose={onClose} footer={
-      <><button className="btn ghost" onClick={onClose}>Cancel</button>
+      <>{u.id && u.id !== me.id && <button className="btn red" onClick={del}>Delete</button>}
+        <div style={{ flex: 1 }} />
+        <button className="btn ghost" onClick={onClose}>Cancel</button>
         <button className="btn green" onClick={save} disabled={!f.name || !f.email || (!u.id && !f.password)}>Save</button></>
     }>
       <div className="form-row">
@@ -94,7 +110,7 @@ function UserModal({ u, roles, branches, me, onClose, onSaved }) {
             {roles.filter(r => me.role === 'super_admin' || r !== 'super_admin').map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
           </select>
         </Field>
-        <Field label="Branch">
+        <Field label="Primary branch">
           <select value={f.branch_id} onChange={set('branch_id')} disabled={me.role !== 'super_admin'}>
             <option value="">All branches (owner/auditor)</option>
             {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -106,6 +122,18 @@ function UserModal({ u, roles, branches, me, onClose, onSaved }) {
           </select>
         </Field>
       </div>
+      {me.role === 'super_admin' && f.branch_id && (
+        <Field label="Additional branches (user can switch between assigned branches)">
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+            {branches.filter(b => b.id !== Number(f.branch_id)).map(b => (
+              <label key={b.id} className="checkbox-row" style={{ marginBottom: 0 }}>
+                <input type="checkbox" checked={f.extra_branches.includes(b.id)} onChange={() => toggleExtra(b.id)} />
+                {b.name}
+              </label>
+            ))}
+          </div>
+        </Field>
+      )}
       <div className="muted">Role permissions can be customised in Settings → Role Permissions.</div>
     </Modal>
   );

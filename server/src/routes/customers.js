@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { all, get, run, insert } from '../db.js';
 import { requirePermission, scopeBranch, writeBranch } from '../auth.js';
-import { audit, round2, today, customerCreditBalance } from '../util.js';
+import { audit, auditDiff, round2, today, customerCreditBalance } from '../util.js';
 
 const router = Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -47,24 +47,31 @@ router.get('/:id(\\d+)', requirePermission('customers.view'), wrap(async (req, r
 }));
 
 router.post('/', requirePermission('customers.manage'), wrap(async (req, res) => {
-  const { name, phone, email = '', address = '', dob = null, credit_limit = 0, notes = '' } = req.body || {};
+  const { name, phone, email = '', address = '', dob = null, credit_limit = 0, notes = '',
+    gstin = '', customer_type = 'individual' } = req.body || {};
   if (!name || !phone) return res.status(400).json({ error: 'Name and mobile number are required' });
   const dup = await get('SELECT id FROM customers WHERE phone = ?', phone.trim());
   if (dup) return res.status(400).json({ error: 'A customer with this mobile number already exists' });
   const branchId = writeBranch(req, req.body.branch_id);
-  const id = await insert(`INSERT INTO customers (branch_id, name, phone, email, address, dob, credit_limit, notes)
-    VALUES (?,?,?,?,?,?,?,?)`, branchId, name.trim(), phone.trim(), email, address, dob || null, credit_limit, notes);
+  const id = await insert(`INSERT INTO customers (branch_id, name, phone, email, address, dob, credit_limit, notes, gstin, customer_type)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`, branchId, name.trim(), phone.trim(), email, address, dob || null, credit_limit, notes,
+    gstin, customer_type === 'business' ? 'business' : 'individual');
   audit(req, 'create', 'customers', id, name);
   res.json({ id });
 }));
 
 router.put('/:id(\\d+)', requirePermission('customers.manage'), wrap(async (req, res) => {
   const f = req.body || {};
+  const before = await get('SELECT * FROM customers WHERE id = ?', req.params.id);
+  if (!before) return res.status(404).json({ error: 'Customer not found' });
   await run(`UPDATE customers SET name=COALESCE(?,name), phone=COALESCE(?,phone), email=COALESCE(?,email),
     address=COALESCE(?,address), dob=COALESCE(?,dob), credit_limit=COALESCE(?,credit_limit),
-    loyalty_points=COALESCE(?,loyalty_points), notes=COALESCE(?,notes), active=COALESCE(?,active) WHERE id=?`,
-    f.name, f.phone, f.email, f.address, f.dob || null, f.credit_limit, f.loyalty_points, f.notes, f.active, req.params.id);
-  audit(req, 'update', 'customers', Number(req.params.id));
+    loyalty_points=COALESCE(?,loyalty_points), notes=COALESCE(?,notes), active=COALESCE(?,active),
+    gstin=COALESCE(?,gstin), customer_type=COALESCE(?,customer_type) WHERE id=?`,
+    f.name, f.phone, f.email, f.address, f.dob || null, f.credit_limit, f.loyalty_points, f.notes, f.active,
+    f.gstin, f.customer_type, req.params.id);
+  auditDiff(req, 'customers', Number(req.params.id), before, f,
+    ['name', 'phone', 'email', 'address', 'credit_limit', 'notes', 'active', 'gstin', 'customer_type']);
   res.json({ ok: true });
 }));
 

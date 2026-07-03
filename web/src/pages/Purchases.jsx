@@ -315,6 +315,7 @@ function SupplierModal({ s, onClose, onSaved }) {
   const [f, setF] = useState({
     name: s.name || '', contact_person: s.contact_person || '', phone: s.phone || '', email: s.email || '',
     address: s.address || '', gstin: s.gstin || '', drug_license: s.drug_license || '', opening_balance: s.opening_balance || 0,
+    payment_terms: s.payment_terms || '',
   });
   const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
   const save = async () => {
@@ -340,6 +341,7 @@ function SupplierModal({ s, onClose, onSaved }) {
         <Field label="GSTIN" value={f.gstin} onChange={set('gstin')} />
         <Field label="Drug license" value={f.drug_license} onChange={set('drug_license')} />
         <Field label="Opening balance (₹)" type="number" value={f.opening_balance} onChange={set('opening_balance')} />
+        <Field label="Payment terms" value={f.payment_terms} onChange={set('payment_terms')} placeholder="e.g. Net 30 days" />
       </div>
       <Field label="Address" value={f.address} onChange={set('address')} />
     </Modal>

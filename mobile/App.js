@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -17,11 +17,19 @@ import DeliveriesScreen from './src/screens/DeliveriesScreen';
 import TasksScreen from './src/screens/TasksScreen';
 import AttendanceScreen from './src/screens/AttendanceScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
+import AdminUsersScreen from './src/screens/AdminUsersScreen';
+import AdminBranchesScreen from './src/screens/AdminBranchesScreen';
+import ReportsScreen from './src/screens/ReportsScreen';
 
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
 export const can = (user, ...perms) =>
   user && (user.role === 'super_admin' || perms.some(p => (user.perms || []).includes(p)));
+
+// Branch selection: owner/auditor can view any branch; staff assigned to
+// multiple branches can switch between their assigned branches only.
+const BranchCtx = createContext({ canSwitch: false, options: [], branchId: '' });
+export const useBranch = () => useContext(BranchCtx);
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -49,6 +57,8 @@ function Tabs() {
 export default function App() {
   const [user, setUser] = useState(null);
   const [booting, setBooting] = useState(true);
+  const [branchId, setBranchId] = useState('');
+  const [allBranches, setAllBranches] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -62,10 +72,28 @@ export default function App() {
     })();
   }, []);
 
+  const isGlobal = user && ['super_admin', 'auditor'].includes(user.role);
+  useEffect(() => {
+    if (isGlobal) api('/admin/branches').then(d => setAllBranches(d.branches.filter(b => b.active))).catch(() => {});
+  }, [isGlobal]);
+
+  const branchCtx = useMemo(() => {
+    const assigned = user?.branches || [];
+    const multi = !isGlobal && assigned.length > 1;
+    const options = isGlobal ? allBranches : assigned;
+    const effective = isGlobal
+      ? branchId
+      : (multi && branchId && assigned.some(b => b.id === Number(branchId)) ? branchId : String(user?.branch_id || ''));
+    return {
+      options, branchId: effective, setBranchId,
+      canSwitch: !!isGlobal || multi, allBranchesOption: !!isGlobal,
+    };
+  }, [user, isGlobal, allBranches, branchId]);
+
   const login = async d => { await setToken(d.token); setUser(d.user); };
   const logout = async () => {
     try { await api('/auth/logout', { method: 'POST' }); } catch {}
-    await setToken(null); setUser(null);
+    await setToken(null); setUser(null); setBranchId('');
   };
 
   if (booting) {
@@ -78,20 +106,25 @@ export default function App() {
 
   return (
     <AuthCtx.Provider value={{ user, login, logout }}>
-      <StatusBar style="light" />
-      <NavigationContainer>
-        {!user ? <LoginScreen /> : (
-          <Stack.Navigator screenOptions={{ headerStyle: { backgroundColor: colors.brand }, headerTintColor: '#fff' }}>
-            <Stack.Screen name="Main" component={Tabs} options={{ headerShown: false }} />
-            <Stack.Screen name="Expiry" component={ExpiryScreen} options={{ title: 'Expiry Check' }} />
-            <Stack.Screen name="Customers" component={CustomersScreen} />
-            <Stack.Screen name="Deliveries" component={DeliveriesScreen} />
-            <Stack.Screen name="Tasks" component={TasksScreen} options={{ title: 'My Tasks' }} />
-            <Stack.Screen name="Attendance" component={AttendanceScreen} />
-            <Stack.Screen name="Notifications" component={NotificationsScreen} />
-          </Stack.Navigator>
-        )}
-      </NavigationContainer>
+      <BranchCtx.Provider value={branchCtx}>
+        <StatusBar style="light" />
+        <NavigationContainer>
+          {!user ? <LoginScreen /> : (
+            <Stack.Navigator screenOptions={{ headerStyle: { backgroundColor: colors.brand }, headerTintColor: '#fff' }}>
+              <Stack.Screen name="Main" component={Tabs} options={{ headerShown: false }} />
+              <Stack.Screen name="Expiry" component={ExpiryScreen} options={{ title: 'Expiry Check' }} />
+              <Stack.Screen name="Customers" component={CustomersScreen} />
+              <Stack.Screen name="Deliveries" component={DeliveriesScreen} />
+              <Stack.Screen name="Tasks" component={TasksScreen} options={{ title: 'My Tasks' }} />
+              <Stack.Screen name="Attendance" component={AttendanceScreen} />
+              <Stack.Screen name="Notifications" component={NotificationsScreen} />
+              <Stack.Screen name="Reports" component={ReportsScreen} />
+              <Stack.Screen name="AdminUsers" component={AdminUsersScreen} options={{ title: 'Users & Staff' }} />
+              <Stack.Screen name="AdminBranches" component={AdminBranchesScreen} options={{ title: 'Branches' }} />
+            </Stack.Navigator>
+          )}
+        </NavigationContainer>
+      </BranchCtx.Provider>
     </AuthCtx.Provider>
   );
 }

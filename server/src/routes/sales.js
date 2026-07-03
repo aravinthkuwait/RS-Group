@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { all, get, run, tx } from '../db.js';
-import { requirePermission, can, scopeBranch, writeBranch } from '../auth.js';
+import { requirePermission, can, scopeBranch, writeBranch, canAccessBranch } from '../auth.js';
 import { audit, broadcast, nextInvoiceNo, checkStockAlerts, round2, today } from '../util.js';
 import { invoicePdf } from '../pdf.js';
 
@@ -171,7 +171,7 @@ router.post('/:id(\\d+)/cancel', requirePermission('billing.cancel'), wrap(async
   const sale = await get('SELECT * FROM sales WHERE id = ?', req.params.id);
   if (!sale) return res.status(404).json({ error: 'Bill not found' });
   if (!['completed', 'held'].includes(sale.status)) return res.status(400).json({ error: `Cannot cancel a ${sale.status} bill` });
-  if (req.user.role !== 'super_admin' && sale.branch_id !== req.user.branch_id) return res.status(403).json({ error: 'Bill belongs to another branch' });
+  if (!canAccessBranch(req.user, sale.branch_id)) return res.status(403).json({ error: 'Bill belongs to another branch' });
   const items = await all('SELECT * FROM sale_items WHERE sale_id = ?', sale.id);
   await tx(async db => {
     if (sale.status === 'completed') {
@@ -190,7 +190,7 @@ router.post('/:id(\\d+)/returns', requirePermission('billing.return'), wrap(asyn
   const sale = await get('SELECT * FROM sales WHERE id = ?', req.params.id);
   if (!sale) return res.status(404).json({ error: 'Bill not found' });
   if (!['completed', 'partial_return'].includes(sale.status)) return res.status(400).json({ error: `Cannot return items on a ${sale.status} bill` });
-  if (req.user.role !== 'super_admin' && sale.branch_id !== req.user.branch_id) return res.status(403).json({ error: 'Bill belongs to another branch' });
+  if (!canAccessBranch(req.user, sale.branch_id)) return res.status(403).json({ error: 'Bill belongs to another branch' });
   const { items = [], reason = '', refund_method = 'cash' } = req.body || {};
   if (!items.length) return res.status(400).json({ error: 'Select items to return' });
 
