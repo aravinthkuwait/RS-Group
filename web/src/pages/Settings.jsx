@@ -122,8 +122,11 @@ function Company() {
         </label>
         <button className="btn green" onClick={() => save('invoice')}>Save Invoice Settings</button>
         <hr style={{ margin: '18px 0', border: 'none', borderTop: '1px solid var(--line)' }} />
-        <h4 style={{ marginBottom: 8 }}>Backup</h4>
-        <a className="btn green" href={fileUrl('/admin/backup')}>⬇ Download full backend backup (JSON)</a>
+        <h4 style={{ marginBottom: 8 }}>Backup & help</h4>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <a className="btn green" href={fileUrl('/admin/backup')}>⬇ Download full backend backup (JSON)</a>
+          <a className="btn" href={fileUrl('/manual')} target="_blank" rel="noreferrer">📖 Download User Manual (PDF)</a>
+        </div>
         <div className="muted" style={{ marginTop: 8 }}>
           Downloads every table — branches, users, medicines, stock, bills, customers,
           expenses — as one file. Database-level backups &amp; point-in-time restore are

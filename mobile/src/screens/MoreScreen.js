@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, Linking } from 'react-native';
 import { useAuth, can } from '../../App';
+import { BASE_URL, getAuthToken } from '../api';
 import { colors, shadow } from '../theme';
 
 export default function MoreScreen({ navigation }) {
@@ -15,6 +16,7 @@ export default function MoreScreen({ navigation }) {
     { t: '📋 My Tasks', nav: 'Tasks' },
     { t: '🕐 Attendance Check-in/out', nav: 'Attendance' },
     { t: '🔔 Notifications', nav: 'Notifications' },
+    { t: '📖 User Manual (PDF)', open: `${BASE_URL}/api/manual?token=` },
   ].filter(Boolean);
 
   return (
@@ -27,7 +29,8 @@ export default function MoreScreen({ navigation }) {
         </Text>
       </View>
       {items.map(x => (
-        <TouchableOpacity key={x.t} onPress={() => navigation.navigate(x.nav)}
+        <TouchableOpacity key={x.t}
+          onPress={() => x.open ? Linking.openURL(x.open + getAuthToken()) : navigation.navigate(x.nav)}
           style={[{ backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 10 }, shadow]}>
           <Text style={{ fontWeight: '700' }}>{x.t}</Text>
         </TouchableOpacity>
