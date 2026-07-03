@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Text, View, ActivityIndicator } from 'react-native';
+import { Text, View, Image, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { api, loadToken, setToken } from './src/api';
 import { colors } from './src/theme';
@@ -34,14 +34,29 @@ export const useBranch = () => useContext(BranchCtx);
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
+// Company logo + page title shown in the header of every screen
+function LogoTitle({ children }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <Image source={require('./assets/rs-group-logo.jpg')}
+        style={{ width: 26, height: 26, borderRadius: 5, marginRight: 8, backgroundColor: '#fff' }} />
+      <Text style={{ color: '#fff', fontWeight: '700', fontSize: 17 }} numberOfLines={1}>{children}</Text>
+    </View>
+  );
+}
+const logoHeader = {
+  headerStyle: { backgroundColor: colors.brand },
+  headerTintColor: '#fff',
+  headerTitle: props => <LogoTitle {...props} />,
+};
+
 function Tabs() {
   const { user } = useAuth();
   const icon = t => ({ Home: '📊', Billing: '🧾', Stock: '💊', More: '☰' }[t]);
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        headerStyle: { backgroundColor: colors.brand },
-        headerTintColor: '#fff',
+        ...logoHeader,
         tabBarActiveTintColor: colors.brand,
         tabBarIcon: () => <Text style={{ fontSize: 18 }}>{icon(route.name)}</Text>,
       })}
@@ -110,7 +125,7 @@ export default function App() {
         <StatusBar style="light" />
         <NavigationContainer>
           {!user ? <LoginScreen /> : (
-            <Stack.Navigator screenOptions={{ headerStyle: { backgroundColor: colors.brand }, headerTintColor: '#fff' }}>
+            <Stack.Navigator screenOptions={logoHeader}>
               <Stack.Screen name="Main" component={Tabs} options={{ headerShown: false }} />
               <Stack.Screen name="Expiry" component={ExpiryScreen} options={{ title: 'Expiry Check' }} />
               <Stack.Screen name="Customers" component={CustomersScreen} />
