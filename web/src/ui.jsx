@@ -1,4 +1,40 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+
+// ---------- Debounced value (live search boxes) ----------
+export function useDebounced(value, ms = 300) {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
+}
+
+// ---------- CSV download (opens in Excel) ----------
+export function exportCSV(filename, columns, rows) {
+  const cols = columns.filter(c => c.key);
+  const esc = x => {
+    const s = x === null || x === undefined ? '' : String(x);
+    return /[",\n]/.test(s) ? '"' + s.replaceAll('"', '""') + '"' : s;
+  };
+  const lines = [cols.map(c => esc(c.label)).join(',')];
+  for (const r of rows) lines.push(cols.map(c => esc(r[c.key])).join(','));
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+export function ExportBtn({ name, columns, rows }) {
+  return (
+    <button className="btn ghost sm" disabled={!rows?.length} title="Download as Excel/CSV"
+      onClick={() => exportCSV(name, columns, rows)}>
+      ⬇ Download
+    </button>
+  );
+}
 
 // ---------- Toasts ----------
 const ToastCtx = createContext(null);

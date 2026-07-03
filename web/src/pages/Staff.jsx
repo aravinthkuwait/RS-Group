@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmt } from '../api.js';
 import { useAuth, useBranch, can } from '../App.jsx';
-import { Card, Table, Tabs, Modal, Field, Badge, useToast } from '../ui.jsx';
+import { Card, Table, Tabs, Modal, Field, Badge, useToast, ExportBtn } from '../ui.jsx';
 
 export default function Staff() {
   const { user } = useAuth();
@@ -38,6 +38,11 @@ function Users() {
     <Card>
       <div className="toolbar">
         <div className="spacer" />
+        <ExportBtn name="staff-users" rows={d.users} columns={[
+          { key: 'name', label: 'Name' }, { key: 'email', label: 'Email' },
+          { key: 'phone', label: 'Phone' }, { key: 'role', label: 'Role' },
+          { key: 'branch_name', label: 'Branch' },
+        ]} />
         <button className="btn" onClick={() => setEdit({})}>+ Add User</button>
       </div>
       <Table columns={[
@@ -129,6 +134,11 @@ function Tasks() {
     <Card>
       <div className="toolbar">
         <div className="spacer" />
+        <ExportBtn name="tasks" rows={rows} columns={[
+          { key: 'title', label: 'Task' }, { key: 'assigned_to_name', label: 'Assigned to' },
+          { key: 'branch_name', label: 'Branch' }, { key: 'due_date', label: 'Due' },
+          { key: 'status', label: 'Status' },
+        ]} />
         {can(user, 'tasks.manage') && <button className="btn" onClick={() => setShow(true)}>+ New Task</button>}
       </div>
       <Table columns={[
@@ -211,7 +221,13 @@ function Attendance() {
           </span>
         </div>
       </Card>
-      <Card title="Attendance log (this month)">
+      <Card title="Attendance log (this month)"
+        actions={<ExportBtn name="attendance" rows={rows} columns={[
+          { key: 'date', label: 'Date' }, { key: 'user_name', label: 'Staff' },
+          { key: 'role', label: 'Role' }, { key: 'branch_name', label: 'Branch' },
+          { key: 'check_in', label: 'In' }, { key: 'check_out', label: 'Out' },
+          { key: 'method', label: 'Via' },
+        ]} />}>
         <Table columns={[
           { key: 'date', label: 'Date' },
           { key: 'user_name', label: 'Staff' },
@@ -243,7 +259,13 @@ function Deliveries() {
   };
 
   return (
-    <Card title="Home deliveries">
+    <Card title="Home deliveries"
+      actions={<ExportBtn name="deliveries" rows={rows} columns={[
+        { key: 'invoice_no', label: 'Invoice' }, { key: 'customer_name', label: 'Customer' },
+        { key: 'customer_phone', label: 'Phone' }, { key: 'delivery_address', label: 'Address' },
+        { key: 'total', label: 'Amount' }, { key: 'delivery_staff_name', label: 'Rider' },
+        { key: 'delivery_status', label: 'Status' },
+      ]} />}>
       <Table columns={[
         { key: 'invoice_no', label: 'Invoice' },
         { key: 'customer_name', label: 'Customer', render: r => <><b>{r.customer_name || 'Walk-in'}</b><div className="muted">{r.customer_phone}</div></> },

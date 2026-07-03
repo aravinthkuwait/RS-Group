@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, fileUrl } from '../api.js';
 import { useAuth, useBranch, can } from '../App.jsx';
-import { Card, Table, Tabs, Modal, Field, Badge, useToast } from '../ui.jsx';
+import { Card, Table, Tabs, Modal, Field, Badge, useToast, ExportBtn } from '../ui.jsx';
 
 export default function Settings() {
   const { user } = useAuth();
@@ -69,7 +69,12 @@ function MyAccount() {
           ]} rows={sessions.sessions.filter(s => !s.revoked)} keyFn={r => r.id} />
         </Card>
       </div>
-      <Card title={['super_admin', 'branch_admin'].includes(user.role) ? 'Login history (all users)' : 'My login history'}>
+      <Card title={['super_admin', 'branch_admin'].includes(user.role) ? 'Login history (all users)' : 'My login history'}
+        actions={<ExportBtn name="login-history" rows={history} columns={[
+          { key: 'created_at', label: 'Time' }, { key: 'user_name', label: 'User' },
+          { key: 'email', label: 'Email' }, { key: 'device', label: 'Device' },
+          { key: 'ip', label: 'IP' }, { key: 'success', label: 'Success' },
+        ]} />}>
         <Table columns={[
           { key: 'created_at', label: 'Time' },
           ...(user.role === 'super_admin' || user.role === 'branch_admin' ? [{ key: 'user_name', label: 'User', render: r => r.user_name || r.email }] : []),
@@ -297,7 +302,12 @@ function Audit() {
   const [rows, setRows] = useState([]);
   useEffect(() => { api('/admin/audit-logs').then(d => setRows(d.logs)).catch(e => toast(e.message, 'red')); }, []);
   return (
-    <Card title="Activity log — every important action is recorded">
+    <Card title="Activity log — every important action is recorded"
+      actions={<ExportBtn name="activity-log" rows={rows} columns={[
+        { key: 'created_at', label: 'Time' }, { key: 'user_name', label: 'User' },
+        { key: 'branch_name', label: 'Branch' }, { key: 'action', label: 'Action' },
+        { key: 'entity', label: 'Entity' }, { key: 'details', label: 'Details' }, { key: 'ip', label: 'IP' },
+      ]} />}>
       <Table columns={[
         { key: 'created_at', label: 'Time' },
         { key: 'user_name', label: 'User' },

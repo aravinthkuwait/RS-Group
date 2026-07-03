@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmt } from '../api.js';
 import { useAuth, useBranch, can } from '../App.jsx';
-import { Card, Table, Tabs, Modal, Field, Badge, useToast } from '../ui.jsx';
+import { Card, Table, Tabs, Modal, Field, Badge, useToast, useDebounced, ExportBtn } from '../ui.jsx';
 
 export default function Inventory() {
   const [tab, setTab] = useState('medicines');
@@ -31,9 +31,10 @@ function Medicines() {
   const [edit, setEdit] = useState(null);
   const [page, setPage] = useState(1);
 
-  const load = () => api('/inventory/medicines', { params: { q, category, branch_id: branchId, page, limit: 25 } })
+  const dq = useDebounced(q, 300);
+  const load = () => api('/inventory/medicines', { params: { q: dq, category, branch_id: branchId, page, limit: 25 } })
     .then(d => { setRows(d.medicines); setTotal(d.total); }).catch(e => toast(e.message, 'red'));
-  useEffect(() => { load(); }, [q, category, branchId, page]);
+  useEffect(() => { load(); }, [dq, category, branchId, page]);
   useEffect(() => { api('/admin/settings').then(d => setCats(d.settings.medicine_categories || [])); }, []);
 
   return (
@@ -46,6 +47,13 @@ function Medicines() {
         </select>
         <div className="spacer" />
         <span className="muted">{total} medicines</span>
+        <ExportBtn name="medicines" rows={rows} columns={[
+          { key: 'name', label: 'Name' }, { key: 'generic_name', label: 'Generic' },
+          { key: 'category', label: 'Category' }, { key: 'brand', label: 'Brand' },
+          { key: 'barcode', label: 'Barcode' }, { key: 'gst_rate', label: 'GST %' },
+          { key: 'rack_location', label: 'Rack' }, { key: 'min_stock', label: 'Min stock' },
+          { key: 'stock', label: 'In stock' },
+        ]} />
         {can(user, 'inventory.edit') && <button className="btn" onClick={() => setEdit({})}>+ Add Medicine</button>}
       </div>
       <Table
@@ -126,9 +134,10 @@ function Stock() {
   const toast = useToast();
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState('');
-  const load = () => api('/inventory/stock', { params: { q, branch_id: branchId } })
+  const dq = useDebounced(q, 300);
+  const load = () => api('/inventory/stock', { params: { q: dq, branch_id: branchId } })
     .then(d => setRows(d.stock)).catch(e => toast(e.message, 'red'));
-  useEffect(() => { load(); }, [q, branchId]);
+  useEffect(() => { load(); }, [dq, branchId]);
   const value = rows.reduce((a, r) => a + r.qty * r.purchase_price, 0);
   return (
     <Card>
@@ -136,6 +145,13 @@ function Stock() {
         <input placeholder="Search medicine or batch no" value={q} onChange={e => setQ(e.target.value)} style={{ width: 280 }} />
         <div className="spacer" />
         <span className="muted">{rows.length} batches · stock value {fmt(value)}</span>
+        <ExportBtn name="stock-batches" rows={rows} columns={[
+          { key: 'medicine_name', label: 'Medicine' }, { key: 'branch_code', label: 'Branch' },
+          { key: 'batch_no', label: 'Batch' }, { key: 'expiry_date', label: 'Expiry' },
+          { key: 'qty', label: 'Qty' }, { key: 'damaged_qty', label: 'Damaged' },
+          { key: 'mrp', label: 'MRP' }, { key: 'selling_price', label: 'Selling' },
+          { key: 'purchase_price', label: 'Cost' },
+        ]} />
       </div>
       <Table
         columns={[
@@ -178,6 +194,12 @@ function Adjustments() {
     <Card>
       <div className="toolbar">
         <div className="spacer" />
+        <ExportBtn name="stock-adjustments" rows={rows} columns={[
+          { key: 'created_at', label: 'Date' }, { key: 'medicine_name', label: 'Medicine' },
+          { key: 'batch_no', label: 'Batch' }, { key: 'branch_name', label: 'Branch' },
+          { key: 'qty_change', label: 'Change' }, { key: 'type', label: 'Type' },
+          { key: 'reason', label: 'Reason' }, { key: 'user_name', label: 'By' },
+        ]} />
         {can(user, 'inventory.adjust') && <button className="btn" onClick={() => setShow(true)}>+ New Adjustment</button>}
       </div>
       <Table

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmt } from '../api.js';
 import { useBranch } from '../App.jsx';
-import { Card, Table, Tabs, Badge, Stat, useToast } from '../ui.jsx';
+import { Card, Table, Tabs, Badge, Stat, useToast, ExportBtn } from '../ui.jsx';
 
 export default function Alerts() {
   const { branchId } = useBranch();
@@ -45,12 +45,22 @@ export default function Alerts() {
       ]} />
 
       {tab === 'expiring' && (
-        <Card title="Batches expiring within 90 days">
+        <Card title="Batches expiring within 90 days"
+          actions={<ExportBtn name="expiring-stock" rows={d.expiring_90} columns={[
+            { key: 'medicine_name', label: 'Medicine' }, { key: 'branch_name', label: 'Branch' },
+            { key: 'batch_no', label: 'Batch' }, { key: 'expiry_date', label: 'Expiry' },
+            { key: 'days_to_expiry', label: 'Days left' }, { key: 'qty', label: 'Qty' },
+          ]} />}>
           <Table columns={expiryCols} rows={d.expiring_90} keyFn={r => r.id} empty="Nothing expiring soon 🎉" />
         </Card>
       )}
       {tab === 'expired' && (
-        <Card title="Already expired — remove from shelves and write off">
+        <Card title="Already expired — remove from shelves and write off"
+          actions={<ExportBtn name="expired-stock" rows={d.expired} columns={[
+            { key: 'medicine_name', label: 'Medicine' }, { key: 'branch_name', label: 'Branch' },
+            { key: 'batch_no', label: 'Batch' }, { key: 'expiry_date', label: 'Expired on' },
+            { key: 'days_expired', label: 'Days ago' }, { key: 'qty', label: 'Qty' },
+          ]} />}>
           <Table columns={[
             { key: 'medicine_name', label: 'Medicine' },
             { key: 'branch_name', label: 'Branch' },
@@ -64,14 +74,21 @@ export default function Alerts() {
       )}
       {tab === 'low' && (
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
-          <Card title="Out of stock">
+          <Card title="Out of stock"
+            actions={<ExportBtn name="out-of-stock" rows={d.out_of_stock} columns={[
+              { key: 'name', label: 'Medicine' }, { key: 'min_stock', label: 'Min level' },
+            ]} />}>
             <Table columns={[
               { key: 'name', label: 'Medicine' },
               { key: 'min_stock', label: 'Min level', num: true },
               { label: 'Status', render: () => <Badge color="red">out of stock</Badge> },
             ]} rows={d.out_of_stock} empty="Nothing out of stock 🎉" />
           </Card>
-          <Card title="Low stock (at or below minimum)">
+          <Card title="Low stock (at or below minimum)"
+            actions={<ExportBtn name="low-stock" rows={d.low_stock} columns={[
+              { key: 'name', label: 'Medicine' }, { key: 'stock', label: 'In stock' },
+              { key: 'min_stock', label: 'Min level' },
+            ]} />}>
             <Table columns={[
               { key: 'name', label: 'Medicine' },
               { key: 'stock', label: 'In stock', num: true },
@@ -98,7 +115,13 @@ export default function Alerts() {
         </div>
       )}
       {tab === 'discount' && (
-        <Card title="Near-expiry discount suggestions — clear stock before it expires">
+        <Card title="Near-expiry discount suggestions — clear stock before it expires"
+          actions={<ExportBtn name="discount-suggestions" rows={d.discount_suggestions} columns={[
+            { key: 'medicine_name', label: 'Medicine' }, { key: 'branch_name', label: 'Branch' },
+            { key: 'batch_no', label: 'Batch' }, { key: 'days_to_expiry', label: 'Days left' },
+            { key: 'qty', label: 'Qty' }, { key: 'stock_value', label: 'Value at risk' },
+            { key: 'suggested_discount_pct', label: 'Suggested discount %' },
+          ]} />}>
           <Table columns={[
             { key: 'medicine_name', label: 'Medicine' },
             { key: 'branch_name', label: 'Branch' },

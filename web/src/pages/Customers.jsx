@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmt } from '../api.js';
 import { useAuth, useBranch, can } from '../App.jsx';
-import { Card, Table, Modal, Field, Badge, Tabs, useToast } from '../ui.jsx';
+import { Card, Table, Modal, Field, Badge, Tabs, useToast, useDebounced, ExportBtn } from '../ui.jsx';
 import { BarList } from '../charts.jsx';
 
 export default function Customers() {
@@ -16,11 +16,12 @@ export default function Customers() {
   const [profile, setProfile] = useState(null);
   const [paying, setPaying] = useState(null);
 
+  const dq = useDebounced(q, 300);
   const load = () => {
-    api('/customers', { params: { q, branch_id: branchId, limit: 100 } }).then(d => setRows(d.customers)).catch(e => toast(e.message, 'red'));
+    api('/customers', { params: { q: dq, branch_id: branchId, limit: 100 } }).then(d => setRows(d.customers)).catch(e => toast(e.message, 'red'));
     api('/customers/dues/list', { params: { branch_id: branchId } }).then(setDues).catch(() => {});
   };
-  useEffect(() => { load(); }, [q, branchId]);
+  useEffect(() => { load(); }, [dq, branchId]);
 
   const openProfile = c => api(`/customers/${c.id}`).then(setProfile).catch(e => toast(e.message, 'red'));
 
@@ -42,6 +43,12 @@ export default function Customers() {
           <div className="toolbar">
             <input placeholder="Search name or mobile" value={q} onChange={e => setQ(e.target.value)} style={{ width: 260 }} />
             <div className="spacer" />
+            <ExportBtn name="customers" rows={rows} columns={[
+              { key: 'name', label: 'Name' }, { key: 'phone', label: 'Mobile' },
+              { key: 'branch_name', label: 'Branch' }, { key: 'total_bills', label: 'Bills' },
+              { key: 'total_spent', label: 'Total spent' }, { key: 'loyalty_points', label: 'Points' },
+              { key: 'credit_balance', label: 'Credit due' }, { key: 'last_purchase', label: 'Last purchase' },
+            ]} />
             {can(user, 'customers.manage') && <button className="btn" onClick={() => setEdit({})}>+ Add Customer</button>}
           </div>
           <Table columns={[
@@ -58,7 +65,11 @@ export default function Customers() {
         </Card>
       )}
       {tab === 'dues' && (
-        <Card title={`Outstanding customer credit — total ${fmt(dues.total)}`}>
+        <Card title={`Outstanding customer credit — total ${fmt(dues.total)}`}
+          actions={<ExportBtn name="customer-credit-dues" rows={dues.dues} columns={[
+            { key: 'name', label: 'Customer' }, { key: 'phone', label: 'Mobile' },
+            { key: 'credit_balance', label: 'Credit due' },
+          ]} />}>
           <Table columns={[
             { key: 'name', label: 'Customer' },
             { key: 'phone', label: 'Mobile' },

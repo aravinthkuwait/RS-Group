@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmt, monthStart, today } from '../api.js';
 import { useAuth, useBranch, can } from '../App.jsx';
-import { Card, Table, Tabs, Modal, Field, Badge, Stat, useToast } from '../ui.jsx';
+import { Card, Table, Tabs, Modal, Field, Badge, Stat, useToast, ExportBtn } from '../ui.jsx';
 import { BarList } from '../charts.jsx';
 
 export default function Accounts() {
@@ -23,7 +23,8 @@ export default function Accounts() {
 
 function Expenses() {
   const { user } = useAuth();
-  const { branchId } = useBranch();
+  const { branchId, branches, canSwitch } = useBranch();
+  const activeBranch = canSwitch ? (branchId || branches[0]?.id) : user.branch_id;
   const toast = useToast();
   const [d, setD] = useState({ expenses: [], by_category: [], total: 0 });
   const [range, setRange] = useState({ from: monthStart(), to: today() });
@@ -50,6 +51,12 @@ function Expenses() {
             <input type="date" value={range.to} onChange={e => setRange(r => ({ ...r, to: e.target.value }))} />
             <div className="spacer" />
             <b>Total: {fmt(d.total)}</b>
+            <ExportBtn name="expenses" rows={d.expenses} columns={[
+              { key: 'date', label: 'Date' }, { key: 'category', label: 'Category' },
+              { key: 'branch_name', label: 'Branch' }, { key: 'amount', label: 'Amount' },
+              { key: 'paid_method', label: 'Paid via' }, { key: 'notes', label: 'Notes' },
+              { key: 'created_by_name', label: 'By' },
+            ]} />
             {can(user, 'expenses.manage') && <button className="btn" onClick={() => setShow(true)}>+ Add Expense</button>}
           </div>
           <Table columns={[
@@ -67,18 +74,18 @@ function Expenses() {
           <BarList data={d.by_category.map(c => ({ label: c.category, value: c.total }))} color={2} />
         </Card>
       </div>
-      {show && <ExpenseModal cats={cats} onClose={() => setShow(false)} onSaved={() => { setShow(false); load(); }} />}
+      {show && <ExpenseModal cats={cats} branchId={activeBranch} branches={branches} canPick={canSwitch} onClose={() => setShow(false)} onSaved={() => { setShow(false); load(); }} />}
     </div>
   );
 }
 
-function ExpenseModal({ cats, onClose, onSaved }) {
+function ExpenseModal({ cats, branchId, branches, canPick, onClose, onSaved }) {
   const toast = useToast();
-  const [f, setF] = useState({ category: cats[0] || 'Miscellaneous', amount: '', date: today(), paid_method: 'cash', notes: '' });
+  const [f, setF] = useState({ category: cats[0] || 'Miscellaneous', amount: '', date: today(), paid_method: 'cash', notes: '', branch_id: branchId });
   const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
   const save = async () => {
     try {
-      await api('/accounts/expenses', { method: 'POST', body: { ...f, amount: Number(f.amount) } });
+      await api('/accounts/expenses', { method: 'POST', body: { ...f, amount: Number(f.amount), branch_id: Number(f.branch_id) } });
       toast('Expense saved', 'green'); onSaved();
     } catch (e) { toast(e.message, 'red'); }
   };
@@ -87,6 +94,13 @@ function ExpenseModal({ cats, onClose, onSaved }) {
       <><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn green" onClick={save} disabled={!f.amount}>Save</button></>
     }>
       <div className="form-row">
+        {canPick && (
+          <Field label="Branch *">
+            <select value={f.branch_id} onChange={set('branch_id')}>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </Field>
+        )}
         <Field label="Category"><select value={f.category} onChange={set('category')}>{cats.map(c => <option key={c}>{c}</option>)}</select></Field>
         <Field label="Amount *" type="number" value={f.amount} onChange={set('amount')} />
       </div>
@@ -172,7 +186,14 @@ function CashClosing() {
         </button>
         {d.closing && <span className="muted" style={{ marginLeft: 12 }}>Closed earlier with difference {fmt(d.closing.difference)}</span>}
       </Card>
-      <Card title="Closing history">
+      <Card title="Closing history"
+        actions={<ExportBtn name="cash-closings" rows={history} columns={[
+          { key: 'date', label: 'Date' }, { key: 'branch_name', label: 'Branch' },
+          { key: 'opening_balance', label: 'Opening' }, { key: 'cash_sales', label: 'Cash sales' },
+          { key: 'expected_cash', label: 'Expected' }, { key: 'actual_cash', label: 'Actual' },
+          { key: 'difference', label: 'Difference' }, { key: 'cash_deposited', label: 'Deposited' },
+          { key: 'closed_by_name', label: 'By' },
+        ]} />}>
         <Table columns={[
           { key: 'date', label: 'Date' },
           { key: 'branch_name', label: 'Branch' },
@@ -198,7 +219,10 @@ function UpiRecon() {
       .then(d => setRows(d.days)).catch(e => toast(e.message, 'red'));
   }, [branchId]);
   return (
-    <Card title="Day-wise UPI collections — match against your UPI app settlement report">
+    <Card title="Day-wise UPI collections — match against your UPI app settlement report"
+      actions={<ExportBtn name="upi-collections" rows={rows} columns={[
+        { key: 'date', label: 'Date' }, { key: 'bills', label: 'UPI bills' }, { key: 'upi_total', label: 'UPI total' },
+      ]} />}>
       <Table columns={[
         { key: 'date', label: 'Date' },
         { key: 'bills', label: 'UPI bills', num: true },

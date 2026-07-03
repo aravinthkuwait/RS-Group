@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { useAuth, useBranch, can } from '../App.jsx';
-import { Card, Table, Modal, Field, Badge, useToast } from '../ui.jsx';
+import { Card, Table, Modal, Field, Badge, useToast, ExportBtn } from '../ui.jsx';
 
 export default function Transfers() {
   const { user } = useAuth();
@@ -35,6 +35,11 @@ export default function Transfers() {
     <Card>
       <div className="toolbar">
         <div className="spacer" />
+        <ExportBtn name="stock-transfers" rows={rows} columns={[
+          { key: 'id', label: '#' }, { key: 'created_at', label: 'Date' },
+          { key: 'from_branch', label: 'From' }, { key: 'to_branch', label: 'To' },
+          { key: 'notes', label: 'Notes' }, { key: 'status', label: 'Status' },
+        ]} />
         {can(user, 'inventory.transfer') && <button className="btn" onClick={() => setShowNew(true)}>+ New Transfer</button>}
       </div>
       <Table columns={[

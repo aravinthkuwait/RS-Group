@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, fileUrl, fmt, monthStart, today } from '../api.js';
 import { useAuth, useBranch, can } from '../App.jsx';
-import { Card, Table, Badge, Modal, Field, useToast } from '../ui.jsx';
+import { Card, Table, Badge, Modal, Field, useToast, useDebounced, ExportBtn } from '../ui.jsx';
 
 export default function Sales() {
   const { user } = useAuth();
@@ -10,12 +10,13 @@ export default function Sales() {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [filters, setFilters] = useState({ from: monthStart(), to: today(), status: '', payment: '', q: '' });
+  const dq = useDebounced(filters.q, 350);
   const [view, setView] = useState(null);
   const [returning, setReturning] = useState(null);
 
-  const load = () => api('/sales', { params: { ...filters, branch_id: branchId, limit: 100 } })
+  const load = () => api('/sales', { params: { ...filters, q: dq, branch_id: branchId, limit: 100 } })
     .then(d => { setRows(d.sales); setTotal(d.total); }).catch(e => toast(e.message, 'red'));
-  useEffect(() => { load(); }, [branchId, filters.from, filters.to, filters.status, filters.payment]);
+  useEffect(() => { load(); }, [branchId, filters.from, filters.to, filters.status, filters.payment, dq]);
 
   const openBill = id => api(`/sales/${id}`).then(d => setView(d.sale)).catch(e => toast(e.message, 'red'));
 
@@ -42,11 +43,18 @@ export default function Sales() {
             {['cash', 'upi', 'card', 'credit'].map(p => <option key={p} value={p}>{p.toUpperCase()}</option>)}
           </select>
           <input placeholder="Invoice / customer / phone" value={filters.q}
-            onChange={e => setFilters(f => ({ ...f, q: e.target.value }))}
-            onKeyDown={e => e.key === 'Enter' && load()} />
-          <button className="btn sm" onClick={load}>Search</button>
+            onChange={e => setFilters(f => ({ ...f, q: e.target.value }))} />
           <div className="spacer" />
           <span className="muted">{total} bills · {fmt(rows.reduce((a, r) => a + r.total, 0))} shown</span>
+          <ExportBtn name="sales-bills" rows={rows} columns={[
+            { key: 'invoice_no', label: 'Invoice' }, { key: 'created_at', label: 'Date' },
+            { key: 'branch_name', label: 'Branch' }, { key: 'customer_name', label: 'Customer' },
+            { key: 'staff_name', label: 'Staff' }, { key: 'subtotal', label: 'Subtotal' },
+            { key: 'discount', label: 'Discount' }, { key: 'total', label: 'Total' },
+            { key: 'paid_cash', label: 'Cash' }, { key: 'paid_upi', label: 'UPI' },
+            { key: 'paid_card', label: 'Card' }, { key: 'credit_amount', label: 'Credit' },
+            { key: 'status', label: 'Status' },
+          ]} />
         </div>
         <Table
           columns={[

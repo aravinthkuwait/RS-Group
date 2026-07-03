@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmt, today } from '../api.js';
 import { useAuth, useBranch, can } from '../App.jsx';
-import { Card, Table, Tabs, Modal, Field, Badge, useToast } from '../ui.jsx';
+import { Card, Table, Tabs, Modal, Field, Badge, useToast, ExportBtn } from '../ui.jsx';
 
 export default function Purchases() {
   const [tab, setTab] = useState('purchases');
@@ -40,6 +40,13 @@ function PurchaseList() {
     <Card>
       <div className="toolbar">
         <div className="spacer" />
+        <ExportBtn name="purchases" rows={rows} columns={[
+          { key: 'invoice_no', label: 'Invoice' }, { key: 'invoice_date', label: 'Date' },
+          { key: 'supplier_name', label: 'Supplier' }, { key: 'branch_name', label: 'Branch' },
+          { key: 'subtotal', label: 'Subtotal' }, { key: 'gst_amount', label: 'GST' },
+          { key: 'total', label: 'Total' }, { key: 'paid_amount', label: 'Paid' },
+          { key: 'pending_amount', label: 'Pending' }, { key: 'status', label: 'Status' },
+        ]} />
         {can(user, 'purchases.manage') && <button className="btn" onClick={() => setShowNew(true)}>+ New Purchase Entry</button>}
       </div>
       <Table
@@ -262,6 +269,11 @@ function Suppliers() {
     <Card>
       <div className="toolbar">
         <div className="spacer" />
+        <ExportBtn name="suppliers" rows={rows} columns={[
+          { key: 'name', label: 'Supplier' }, { key: 'contact_person', label: 'Contact' },
+          { key: 'phone', label: 'Phone' }, { key: 'email', label: 'Email' },
+          { key: 'gstin', label: 'GSTIN' }, { key: 'balance', label: 'Balance due' },
+        ]} />
         {can(user, 'suppliers.manage') && <button className="btn" onClick={() => setEdit({})}>+ Add Supplier</button>}
       </div>
       <Table columns={[
@@ -369,7 +381,10 @@ function Dues() {
   useEffect(() => { api('/purchases/dues/summary').then(setD).catch(e => toast(e.message, 'red')); }, []);
   if (!d) return null;
   return (
-    <Card title={`Pending supplier payments — total ${fmt(d.total)}`}>
+    <Card title={`Pending supplier payments — total ${fmt(d.total)}`}
+      actions={<ExportBtn name="supplier-dues" rows={d.dues} columns={[
+        { key: 'name', label: 'Supplier' }, { key: 'phone', label: 'Phone' }, { key: 'balance', label: 'Due' },
+      ]} />}>
       <Table columns={[
         { key: 'name', label: 'Supplier' },
         { key: 'phone', label: 'Phone' },
@@ -388,7 +403,12 @@ function PReturns() {
       .then(d => setRows(d.returns)).catch(e => toast(e.message, 'red'));
   }, [branchId]);
   return (
-    <Card title="Purchase returns to suppliers">
+    <Card title="Purchase returns to suppliers"
+      actions={<ExportBtn name="purchase-returns" rows={rows} columns={[
+        { key: 'created_at', label: 'Date' }, { key: 'supplier_name', label: 'Supplier' },
+        { key: 'invoice_no', label: 'Against invoice' }, { key: 'branch_name', label: 'Branch' },
+        { key: 'reason', label: 'Reason' }, { key: 'amount', label: 'Amount' },
+      ]} />}>
       <Table columns={[
         { key: 'created_at', label: 'Date' },
         { key: 'supplier_name', label: 'Supplier' },
