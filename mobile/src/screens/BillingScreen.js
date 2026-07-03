@@ -8,12 +8,16 @@ import { Field, Chips, Btn, BranchBar } from '../ui';
 
 export default function BillingScreen() {
   const { user } = useAuth();
-  const { branchId } = useBranch();
+  const { branchId, options } = useBranch();
+  // Billing always needs ONE concrete branch — owners on "All Branches"
+  // fall back to the first branch (matches the highlighted chip).
+  const activeBranch = Number(branchId) || options[0]?.id || user.branch_id;
   const [q, setQ] = useState('');
   const [results, setResults] = useState([]);
   const [cart, setCart] = useState([]);
   const [phone, setPhone] = useState('');
-  const [customer, setCustomer] = useState(null); // matched profile (special discount)
+  const [custResults, setCustResults] = useState([]); // live customer suggestions
+  const [customer, setCustomer] = useState(null); // selected profile (special discount)
   const [payMode, setPayMode] = useState('cash');
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -31,31 +35,38 @@ export default function BillingScreen() {
   const limit = user.discount_limit ?? 10;
 
   useEffect(() => {
-    api('/promotions/active', { params: { branch_id: branchId } })
+    api('/promotions/active', { params: { branch_id: activeBranch } })
       .then(d => setPromos(d.promotions)).catch(() => {});
-  }, [branchId]);
+  }, [activeBranch]);
 
   useEffect(() => {
     clearTimeout(debounce.current);
     if (!q.trim()) { setResults([]); return; }
     debounce.current = setTimeout(() => {
-      api('/inventory/medicines/pos-search', { params: { q: q.trim(), branch_id: branchId } })
+      api('/inventory/medicines/pos-search', { params: { q: q.trim(), branch_id: activeBranch } })
         .then(d => setResults(d.results)).catch(() => {});
     }, 200);
-  }, [q, branchId]);
+  }, [q, activeBranch]);
 
-  // Look up customer profile by phone for their special discount
+  // Live customer search by mobile number OR name — suggestions to tap
   useEffect(() => {
     clearTimeout(custDebounce.current);
-    if (phone.trim().length < 6) { setCustomer(null); return; }
+    const term = phone.trim();
+    if (customer || term.length < 2) { setCustResults([]); return; }
     custDebounce.current = setTimeout(() => {
-      api('/customers', { params: { q: phone.trim(), limit: 5 } }).then(d => {
-        const m = d.customers.find(c => c.phone.replace(/\s+/g, '').endsWith(phone.replace(/\s+/g, '').slice(-10)));
-        setCustomer(m || null);
-        if (!m && discType === 'customer') setDiscType('none');
-      }).catch(() => {});
-    }, 300);
-  }, [phone]);
+      api('/customers', { params: { q: term, limit: 5 } })
+        .then(d => setCustResults(d.customers.slice(0, 5)))
+        .catch(() => {});
+    }, 250);
+  }, [phone, customer]);
+
+  const pickCustomer = c => {
+    setCustomer(c); setPhone(c.phone); setCustResults([]);
+  };
+  const clearCustomer = () => {
+    setCustomer(null); setPhone('');
+    if (discType === 'customer') setDiscType('none');
+  };
 
   const add = r => {
     setCart(c => {
@@ -72,7 +83,7 @@ export default function BillingScreen() {
   const onScan = ({ data }) => {
     if (!scanning) return;
     setScanning(false);
-    api('/inventory/medicines/pos-search', { params: { q: data, branch_id: branchId } })
+    api('/inventory/medicines/pos-search', { params: { q: data, branch_id: activeBranch } })
       .then(d => d.results.length ? add(d.results[0]) : Alert.alert('Not found', `No in-stock medicine for barcode ${data}`))
       .catch(e => Alert.alert('Error', e.message));
   };
@@ -118,7 +129,7 @@ export default function BillingScreen() {
       const d = await api('/sales', {
         method: 'POST',
         body: {
-          branch_id: branchId || undefined,
+          branch_id: activeBranch || undefined,
           items: cart.map(i => ({ batch_id: i.batch_id, qty: i.qty })),
           customer_id: customer?.id || undefined,
           customer_phone: phone || undefined,
@@ -140,7 +151,7 @@ export default function BillingScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
-      <BranchBar />
+      <BranchBar requireBranch />
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <TextInput
           style={{ flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.line }}
@@ -190,11 +201,31 @@ export default function BillingScreen() {
 
       <View style={[{ backgroundColor: '#fff', borderRadius: 12, padding: 12 }, shadow]}>
         <TextInput style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 8, padding: 10, marginBottom: 6 }}
-          placeholder="Customer mobile (optional)" keyboardType="phone-pad" value={phone} onChangeText={setPhone} />
+          placeholder="Customer mobile or name (optional)" value={phone}
+          onChangeText={v => { setPhone(v); if (customer) setCustomer(null); }} />
+        {custResults.length > 0 && (
+          <View style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 8, marginBottom: 6, maxHeight: 160 }}>
+            <ScrollView>
+              {custResults.map(c => (
+                <TouchableOpacity key={c.id} onPress={() => pickCustomer(c)}
+                  style={{ padding: 10, borderBottomWidth: 1, borderColor: colors.line }}>
+                  <Text style={{ fontWeight: '700' }}>
+                    {c.name}
+                    {Number(c.discount_percent) > 0 && <Text style={{ color: colors.green, fontSize: 11 }}>  {c.discount_percent}% disc</Text>}
+                  </Text>
+                  <Text style={{ color: colors.ink3, fontSize: 12 }}>{c.phone} · {c.total_bills} bills · {Math.round(c.loyalty_points)} ⭐</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
         {customer && (
-          <Text style={{ color: colors.green, fontSize: 12, marginBottom: 6 }}>
-            {customer.name}{Number(customer.discount_percent) > 0 ? ` · special discount ${customer.discount_percent}%` : ''}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+            <Text style={{ color: colors.green, fontSize: 12, flex: 1 }}>
+              ✓ {customer.name}{Number(customer.discount_percent) > 0 ? ` · special discount ${customer.discount_percent}%` : ''}
+            </Text>
+            <TouchableOpacity onPress={clearCustomer}><Text style={{ color: colors.red, fontSize: 12 }}>✕ change</Text></TouchableOpacity>
+          </View>
         )}
         {canDiscount && (
           <TouchableOpacity onPress={() => setDiscOpen(true)}
