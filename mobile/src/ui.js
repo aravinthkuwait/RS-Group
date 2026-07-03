@@ -1,7 +1,7 @@
-import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal } from 'react-native';
 import { useBranch } from '../App';
-import { colors } from './theme';
+import { colors, shadow } from './theme';
 
 export function Field({ label, ...props }) {
   return (
@@ -53,30 +53,52 @@ export function Btn({ title, onPress, color = colors.brand, disabled }) {
   );
 }
 
-// Branch selector strip — shown only when the user can switch branches
+// Branch selector dropdown — shown only when the user can switch branches
 // (owner/auditor across all branches, or staff assigned to multiple branches).
-// requireBranch: screens that need ONE concrete branch (e.g. billing) hide the
-// "All Branches" chip and treat the first branch as selected by default.
+// requireBranch: screens that need ONE concrete branch (e.g. billing) drop the
+// "All Branches" option and treat the first branch as selected by default.
 export function BranchBar({ requireBranch = false }) {
   const { canSwitch, options, branchId, setBranchId, allBranchesOption } = useBranch();
+  const [open, setOpen] = useState(false);
   if (!canSwitch) return null;
   const effective = Number(branchId) || (requireBranch ? options[0]?.id : null);
+  const current = options.find(b => b.id === effective);
+  const label = current ? current.name : 'All Branches';
+  const choices = [
+    ...(allBranchesOption && !requireBranch ? [{ id: '', name: 'All Branches' }] : []),
+    ...options,
+  ];
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 40, marginBottom: 8 }}>
-      <View style={{ flexDirection: 'row', gap: 6 }}>
-        {allBranchesOption && !requireBranch && (
-          <TouchableOpacity onPress={() => setBranchId('')}
-            style={{ paddingVertical: 7, paddingHorizontal: 12, borderRadius: 16, backgroundColor: !branchId ? colors.brand : '#fff', borderWidth: 1, borderColor: colors.line }}>
-            <Text style={{ color: !branchId ? '#fff' : colors.ink2, fontWeight: '700', fontSize: 12 }}>All Branches</Text>
-          </TouchableOpacity>
-        )}
-        {options.map(b => (
-          <TouchableOpacity key={b.id} onPress={() => setBranchId(String(b.id))}
-            style={{ paddingVertical: 7, paddingHorizontal: 12, borderRadius: 16, backgroundColor: effective === b.id ? colors.brand : '#fff', borderWidth: 1, borderColor: colors.line }}>
-            <Text style={{ color: effective === b.id ? '#fff' : colors.ink2, fontWeight: '700', fontSize: 12 }}>{b.name}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-    </ScrollView>
+    <View style={{ marginBottom: 8 }}>
+      <TouchableOpacity onPress={() => setOpen(true)}
+        style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: colors.line, paddingVertical: 10, paddingHorizontal: 12 }}>
+        <Text style={{ fontSize: 12, color: colors.ink3, fontWeight: '700' }}>BRANCH  </Text>
+        <Text style={{ flex: 1, fontWeight: '700', color: colors.brand }} numberOfLines={1}>🏬 {label}</Text>
+        <Text style={{ color: colors.ink3 }}>▾</Text>
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <TouchableOpacity activeOpacity={1} onPress={() => setOpen(false)}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,.4)', justifyContent: 'center', padding: 24 }}>
+          <View style={[{ backgroundColor: '#fff', borderRadius: 14, paddingVertical: 6, maxHeight: '70%' }, shadow]}>
+            <Text style={{ fontWeight: '800', fontSize: 15, padding: 12, color: colors.brandDark }}>Select branch</Text>
+            <ScrollView>
+              {choices.map(b => {
+                const selected = b.id === '' ? (!effective && !requireBranch) : b.id === effective;
+                return (
+                  <TouchableOpacity key={String(b.id)}
+                    onPress={() => { setBranchId(b.id === '' ? '' : String(b.id)); setOpen(false); }}
+                    style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 14, backgroundColor: selected ? colors.brandLight : '#fff', borderTopWidth: 1, borderColor: colors.line }}>
+                    <Text style={{ flex: 1, fontWeight: selected ? '800' : '500', color: selected ? colors.brand : colors.ink }}>
+                      {b.id === '' ? '🌐 All Branches' : `🏬 ${b.name}`}
+                    </Text>
+                    {selected && <Text style={{ color: colors.brand, fontWeight: '800' }}>✓</Text>}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
   );
 }
