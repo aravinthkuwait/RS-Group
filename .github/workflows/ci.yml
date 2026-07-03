@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & end-to-end tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rsgroup
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/rsgroup
+      JWT_SECRET: ci-test-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm run setup
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Seed sample data
+        run: node server/src/seed.js --force
+
+      - name: Start server
+        run: |
+          node server/src/index.js &
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:4000/api/health && exit 0
+            sleep 2
+          done
+          echo "Server did not become healthy" && exit 1
+
+      - name: Run end-to-end test suite (56 tests)
+        run: node server/test/e2e.mjs
