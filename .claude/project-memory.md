@@ -12,3 +12,4 @@
 - 2026-07-03: EAS wired: project rs-group (owner aravinthkuwait, id 10c7a4a8-fd02-4bfb-9cba-aef7b84f579b), GitHub repo connected on expo.dev. User builds APK via Builds -> Build from GitHub, branch claude/rs-group-medical-saas-k2eivu, profile preview, base dir mobile.
 - 2026-07-03: EAS build #1 failed at gradle (JPG icon/splash + RN 0.76.6 drift). Fixed: PNG assets 1024/splash 1284x2778, RN 0.76.9. User rebuilds from expo.dev.
 - 2026-07-03: Live debounced search all lists; CSV Download buttons on ~20 tables; fixed owner expense missing branch. Field sweep 39/39, crash sweep clean, e2e 56/56.
+- 2026-07-03: Added factory-reset endpoint+UI (keeps super admins/settings, seed guard via demo_data_wiped flag), JSON backend backup polished, PDFs: GST CGST/SGST breakdown, page X of Y, downloaded-by footer. All verified incl. 5-page report.
