@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "RS Group Staff",
-    "slug": "rs-group-staff",
+    "slug": "rs-group",
+    "owner": "aravinthkuwait",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/rs-group-logo.jpg",
