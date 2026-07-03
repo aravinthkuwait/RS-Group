@@ -55,13 +55,16 @@ export function Btn({ title, onPress, color = colors.brand, disabled }) {
 
 // Branch selector strip — shown only when the user can switch branches
 // (owner/auditor across all branches, or staff assigned to multiple branches).
-export function BranchBar() {
+// requireBranch: screens that need ONE concrete branch (e.g. billing) hide the
+// "All Branches" chip and treat the first branch as selected by default.
+export function BranchBar({ requireBranch = false }) {
   const { canSwitch, options, branchId, setBranchId, allBranchesOption } = useBranch();
   if (!canSwitch) return null;
+  const effective = Number(branchId) || (requireBranch ? options[0]?.id : null);
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 40, marginBottom: 8 }}>
       <View style={{ flexDirection: 'row', gap: 6 }}>
-        {allBranchesOption && (
+        {allBranchesOption && !requireBranch && (
           <TouchableOpacity onPress={() => setBranchId('')}
             style={{ paddingVertical: 7, paddingHorizontal: 12, borderRadius: 16, backgroundColor: !branchId ? colors.brand : '#fff', borderWidth: 1, borderColor: colors.line }}>
             <Text style={{ color: !branchId ? '#fff' : colors.ink2, fontWeight: '700', fontSize: 12 }}>All Branches</Text>
@@ -69,8 +72,8 @@ export function BranchBar() {
         )}
         {options.map(b => (
           <TouchableOpacity key={b.id} onPress={() => setBranchId(String(b.id))}
-            style={{ paddingVertical: 7, paddingHorizontal: 12, borderRadius: 16, backgroundColor: Number(branchId) === b.id ? colors.brand : '#fff', borderWidth: 1, borderColor: colors.line }}>
-            <Text style={{ color: Number(branchId) === b.id ? '#fff' : colors.ink2, fontWeight: '700', fontSize: 12 }}>{b.name}</Text>
+            style={{ paddingVertical: 7, paddingHorizontal: 12, borderRadius: 16, backgroundColor: effective === b.id ? colors.brand : '#fff', borderWidth: 1, borderColor: colors.line }}>
+            <Text style={{ color: effective === b.id ? '#fff' : colors.ink2, fontWeight: '700', fontSize: 12 }}>{b.name}</Text>
           </TouchableOpacity>
         ))}
       </View>
