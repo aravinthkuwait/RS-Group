@@ -300,6 +300,23 @@ ok('audit log populated', logs.logs.length > 10, `${logs.logs.length} entries`);
 const lh = (await req('/auth/login-history', 'GET', null, OT)).data;
 ok('login history', lh.history.length > 0, `${lh.history.length} entries`);
 
+console.log('— Default login per role —');
+const DEFAULTS = [
+  ['owner@rsgroup.in', 'rsgroup123', 'super_admin'],
+  ['admin@rsgroup.in', 'admin123', 'branch_admin'],
+  ['manager@rsgroup.in', 'manager123', 'branch_manager'],
+  ['pharmacist@rsgroup.in', 'pharma123', 'pharmacist'],
+  ['billing@rsgroup.in', 'billing123', 'billing_staff'],
+  ['inventory@rsgroup.in', 'inventory123', 'inventory_staff'],
+  ['accounts@rsgroup.in', 'accounts123', 'accountant'],
+  ['delivery@rsgroup.in', 'delivery123', 'delivery_staff'],
+  ['audit@rsgroup.in', 'audit123', 'auditor'],
+];
+for (const [email, password, role] of DEFAULTS) {
+  const r = await req('/auth/login', 'POST', { email, password });
+  ok(`default login: ${role}`, r.status === 200 && r.data.user?.role === role, email);
+}
+
 console.log('— Usage & cost monitor —');
 const usage = (await req('/admin/usage', 'GET', null, OT)).data;
 ok('usage: db size + table breakdown', usage.db_bytes > 0 && Array.isArray(usage.tables) && usage.tables.length > 10, `${(usage.db_bytes / 1048576).toFixed(1)} MB, ${usage.tables?.length} tables`);
