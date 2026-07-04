@@ -163,13 +163,41 @@ export async function invoicePdf(res, sale, items, branch, customer, staff, prin
   doc.end();
 }
 
-// Compact 80mm thermal-roll receipt (SN/Description/Batch/Exp/Amount rows,
-// round-off + "you saved" line) — mirrors typical pharmacy POS printouts.
+const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+  'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+// English words for a whole rupee amount, Indian lakh/crore grouping (e.g. 499 -> "Four Hundred And Ninety Nine")
+function numberToWords(num) {
+  num = Math.round(num);
+  if (num === 0) return 'Zero';
+  const chunk = n => {
+    let s = '';
+    if (n >= 100) { s += ONES[Math.floor(n / 100)] + ' Hundred '; n %= 100; }
+    if (n > 0 && s) s += 'And ';
+    if (n >= 20) { s += TENS[Math.floor(n / 10)] + ' '; n %= 10; }
+    if (n > 0) s += ONES[n] + ' ';
+    return s.trim();
+  };
+  const crore = Math.floor(num / 10000000); num %= 10000000;
+  const lakh = Math.floor(num / 100000); num %= 100000;
+  const thousand = Math.floor(num / 1000); num %= 1000;
+  const parts = [];
+  if (crore) parts.push(`${chunk(crore)} Crore`);
+  if (lakh) parts.push(`${chunk(lakh)} Lakh`);
+  if (thousand) parts.push(`${chunk(thousand)} Thousand`);
+  if (num) parts.push(chunk(num));
+  return parts.join(' ');
+}
+
+// Compact 80mm thermal-roll receipt — wording/layout mirrors the standard
+// Jan Aushadhi-style pharmacy bill (Bill No./Bill Date, Name/Add./Doct,
+// SN|Description|Qty|Batch|Exp|Amount rows, round-off, amount in words).
 export async function thermalReceiptPdf(res, sale, items, branch, customer, staff, printedBy = '') {
   const invoiceCfg = (await getSetting('invoice', {})) || {};
   const company = (await getSetting('company', {})) || {};
   const W = 227, M = 8, CW = W - M * 2;
-  const doc = new PDFDocument({ size: [W, 195 + items.length * 9], margin: M });
+  const doc = new PDFDocument({ size: [W, 210 + items.length * 9], margin: M });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="receipt-${sale.invoice_no.replaceAll('/', '-')}.pdf"`);
   doc.pipe(res);
@@ -186,15 +214,19 @@ export async function thermalReceiptPdf(res, sale, items, branch, customer, staf
   centered(company.name || 'RS Group', 9, true);
   if (company.division) centered(company.division, 6.5);
   centered(branch?.address || company.address || '', 6.5);
-  const lic = [branch?.gstin || company.gstin, branch?.drug_license || company.drug_license].filter(Boolean).join('  ');
-  if (lic) centered(lic, 6.5);
-  if (branch?.phone || company.phone) centered(`Ph: ${branch?.phone || company.phone}`, 6.5);
+  const dl = branch?.drug_license || company.drug_license;
+  if (dl) centered(`D.L.No.: ${dl}`, 6.5);
+  const gstin = branch?.gstin || company.gstin;
+  if (gstin) centered(`GSTIN : ${gstin}`, 6.5);
+  if (branch?.phone || company.phone) centered(`Phone : ${branch?.phone || company.phone}`, 6.5);
   doc.moveDown(0.3);
   doc.font('Courier').fontSize(6.5).text(dash);
-  doc.text(`Bill No: ${sale.invoice_no}`);
-  doc.text(`Date: ${sale.created_at}`);
-  doc.text(`Name: ${customer ? `${customer.name} (${customer.phone})` : 'Walk-in Customer'}`);
-  if (sale.doctor_name) doc.text(`Doctor: ${sale.doctor_name}`);
+  doc.text(`Bill No.  : ${sale.invoice_no}`);
+  doc.text(`Bill Date : ${sale.created_at}`);
+  doc.text(dash);
+  doc.text(`Name : ${customer ? `${customer.name} (${customer.phone})` : 'Walk-in Customer'}`);
+  doc.text(`Add. : ${customer?.address || branch?.city || '-'}`);
+  doc.text(`Doct : ${sale.doctor_name || '-'}`);
   doc.text(dash);
   doc.font('Courier-Bold').text(row(['SN', 'DESCRIPTION', 'QTY', 'BATCH', 'EXP', 'AMOUNT']));
   doc.text(dash);
@@ -205,17 +237,19 @@ export async function thermalReceiptPdf(res, sale, items, branch, customer, staf
   doc.text(dash);
 
   const grossAmount = round2(sale.subtotal - sale.discount);
-  doc.fontSize(7.5).text(`TOTAL: ${rupee(grossAmount)}`, { align: 'right' });
-  if (sale.round_off) doc.text(`R.OFF: ${rupee(sale.round_off)}`, { align: 'right' });
+  doc.fontSize(7.5).text(`TOTAL :  ${grossAmount.toFixed(2)}`, { align: 'right' });
+  if (sale.round_off) doc.text(`R.OFF: ${sale.round_off.toFixed(2)}`, { align: 'right' });
   doc.fontSize(6.5).text(dash);
-  doc.font('Courier-Bold').fontSize(10).text(`NET PAYABLE: ${rupee(sale.total)}`, { align: 'right' });
-  doc.font('Courier').fontSize(7);
+  doc.font('Courier-Bold').fontSize(10).text(`Total Bill Value is : ${sale.total.toFixed(2)}`, { align: 'right' });
+  doc.font('Courier').fontSize(6.5).text(`Rs. ${numberToWords(sale.total)} only`, { align: 'right' });
   const savings = round2(items.reduce((a, it) => a + (it.mrp - it.price) * it.qty, 0) + round2(sale.discount || 0) + round2(sale.item_discount || 0));
-  if (savings > 0) centered(`You saved Rs. ${savings.toFixed(2)}`, 7);
+  if (savings > 0) doc.font('Courier').fontSize(7).text(`Today you saved Rs. ${savings.toFixed(2)}`, { align: 'right' });
   doc.moveDown(0.3);
   doc.fontSize(6.5).text(dash);
   if (invoiceCfg.terms) centered(invoiceCfg.terms, 6.5);
-  centered(invoiceCfg.footer || 'Thank you! Get well soon.', 6.5);
+  centered(invoiceCfg.footer || 'Goods Once Sold Cannot be Taken Back or Exchange', 6.5);
+  centered('Wishing You a Speedy Recovery', 6.5);
+  centered('Have a Nice Day, >>>>> Thanking You <<<<<', 6.5);
   centered(`Printed by ${printedBy || staff?.name || ''} on ${new Date().toISOString().replace('T', ' ').slice(0, 16)}`, 6);
   doc.end();
 }
