@@ -16,6 +16,8 @@ export default function POS() {
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customer, setCustomer] = useState(null); // matched profile (for special discount)
+  const [custSearch, setCustSearch] = useState(''); // search box: name OR mobile
+  const [custResults, setCustResults] = useState([]); // suggestion list
   const [doctor, setDoctor] = useState('');
   const [discType, setDiscType] = useState('none'); // none | percent | amount | customer | promo
   const [discValue, setDiscValue] = useState('');
@@ -55,19 +57,28 @@ export default function POS() {
     }, 160);
   }, [q, activeBranch]);
 
-  // Look up an existing customer profile by phone (drives the special-discount option)
+  // Search existing customers by NAME or MOBILE for the suggestion dropdown
   useEffect(() => {
     clearTimeout(custDebounce.current);
-    const phone = customerPhone.trim();
-    if (phone.length < 6) { setCustomer(null); return; }
+    const term = custSearch.trim();
+    if (term.length < 2) { setCustResults([]); return; }
     custDebounce.current = setTimeout(() => {
-      api('/customers', { params: { q: phone, limit: 5 } }).then(d => {
-        const match = d.customers.find(c => c.phone.replace(/\s+/g, '').endsWith(phone.replace(/\s+/g, '').slice(-10)));
-        setCustomer(match || null);
-        if (!match && discType === 'customer') setDiscType('none');
-      }).catch(() => {});
-    }, 300);
-  }, [customerPhone]);
+      api('/customers', { params: { q: term, limit: 6 } })
+        .then(d => setCustResults(d.customers)).catch(() => {});
+    }, 250);
+  }, [custSearch]);
+
+  const pickCustomer = (c) => {
+    setCustomer(c);
+    setCustomerPhone(c.phone || '');
+    setCustomerName(c.name || '');
+    setCustSearch('');
+    setCustResults([]);
+  };
+  const clearCustomer = () => {
+    setCustomer(null); setCustomerPhone(''); setCustomerName(''); setCustSearch('');
+    if (discType === 'customer') setDiscType('none');
+  };
 
   const addToCart = (r) => {
     setCart(c => {
@@ -164,7 +175,7 @@ export default function POS() {
         setDone(data.sale);
         toast(`Bill ${data.invoice_no} saved — ${fmt(data.total)}`, 'green');
       }
-      setCart([]); setCustomerPhone(''); setCustomerName(''); setCustomer(null); setDoctor('');
+      setCart([]); setCustomerPhone(''); setCustomerName(''); setCustomer(null); setCustSearch(''); setCustResults([]); setDoctor('');
       setDiscType('none'); setDiscValue(''); setPromoId(''); setApproval(null); setRx(null); setResumeId(null);
       setPay({ mode: 'cash', cash: '', upi: '', card: '', credit: '' }); setSplit(false);
       loadHeld();
@@ -290,16 +301,39 @@ export default function POS() {
 
         <div className="grid" style={{ gap: 14 }}>
           <Card title="Customer & prescription">
+            <Field label="🔎 Search customer by name or mobile">
+              <div style={{ position: 'relative' }}>
+                <input className="input" value={custSearch} onChange={e => setCustSearch(e.target.value)}
+                  placeholder="Type a name or mobile number to find an existing customer…" />
+                {custResults.length > 0 && (
+                  <div className="pos-search-results">
+                    {custResults.map(c => (
+                      <div key={c.id} className="item" onMouseDown={() => pickCustomer(c)}>
+                        <div>
+                          <b>{c.name}</b>
+                          {Number(c.discount_percent) > 0 && <span className="badge green" style={{ marginLeft: 6 }}>{c.discount_percent}%</span>}
+                          <div className="muted">{c.phone} · {c.total_bills} bills · {Math.round(c.loyalty_points)} pts</div>
+                        </div>
+                        {c.credit_balance > 0 && <div className="right muted">Due {fmt(c.credit_balance)}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Field>
+            {customer ? (
+              <div className="ok-msg" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>✓ {customer.name} · {customer.phone} · {Math.round(customer.loyalty_points)} pts
+                  {Number(customer.discount_percent) > 0 && ` · special discount ${customer.discount_percent}%`}</span>
+                <a href="#" onClick={e => { e.preventDefault(); clearCustomer(); }}>change</a>
+              </div>
+            ) : (
+              <div className="muted" style={{ fontSize: '.8rem', margin: '2px 0 8px' }}>…or enter a new walk-in customer below.</div>
+            )}
             <div className="form-row">
               <Field label="Mobile number" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)} placeholder="+91 …" />
               <Field label="Name (new customers)" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="optional" />
             </div>
-            {customer && (
-              <div className="ok-msg">
-                {customer.name} · {Math.round(customer.loyalty_points)} pts
-                {Number(customer.discount_percent) > 0 && ` · special discount ${customer.discount_percent}%`}
-              </div>
-            )}
             <div className="form-row">
               <Field label="Doctor name" value={doctor} onChange={e => setDoctor(e.target.value)} placeholder="optional" />
               <Field label="Prescription upload">
