@@ -12,22 +12,22 @@
 - Staff may also enter their **branch code** (e.g. `RSG-CHN`) — login is refused if they are not assigned to that branch.
 - Forgot password? Use **Forgot password** on the login page — a 6-digit reset code is generated.
 
-### 1.2 Sample logins (demo data)
-All demo users share the password `rsgroup123`:
+### 1.2 Default login for each role
+One ready-to-use account exists for every role category:
 
-| Role | Email |
-|---|---|
-| Owner (super admin) | owner@rsgroup.in |
-| Branch admin (Chennai) | priya@rsgroup.in |
-| Branch manager (Madurai) | karthik@rsgroup.in |
-| Pharmacist | fathima@rsgroup.in |
-| Billing staff | suresh@rsgroup.in |
-| Inventory staff | vignesh@rsgroup.in |
-| Accountant | lakshmi@rsgroup.in |
-| Delivery staff | ganesh@rsgroup.in |
-| Auditor | auditor@rsgroup.in |
+| Role | Email | Password |
+|---|---|---|
+| Owner (super admin) | owner@rsgroup.in | rsgroup123 |
+| Branch admin | admin@rsgroup.in | admin123 |
+| Branch manager | manager@rsgroup.in | manager123 |
+| Pharmacist | pharmacist@rsgroup.in | pharma123 |
+| Billing staff | billing@rsgroup.in | billing123 |
+| Inventory staff | inventory@rsgroup.in | inventory123 |
+| Accountant | accounts@rsgroup.in | accounts123 |
+| Delivery staff | delivery@rsgroup.in | delivery123 |
+| Auditor | audit@rsgroup.in | audit123 |
 
-> When you are ready to go live, use **Settings → Fresh Start** to erase all demo data in one click (your owner account and settings are kept).
+> **Change these passwords before going live.** Sign in as each role (or edit them from **Staff & Tasks** as the owner) and set a new password. **Settings → Fresh Start** removes every account except the owner, so recreate any you still need afterwards.
 
 ### 1.3 Branches
 - The **owner and auditor** can switch between branches (or view *All Branches*) using the dropdown in the top bar.

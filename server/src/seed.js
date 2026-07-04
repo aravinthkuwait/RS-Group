@@ -3,6 +3,20 @@ import { pool, tx, initSchema } from './db.js';
 import { DEFAULT_ROLE_PERMISSIONS } from './auth.js';
 import { round2 } from './util.js';
 
+// One ready-to-use default login for every role category (owner is created
+// separately as super_admin). Kept in one place so seed and any live backfill
+// stay in sync.
+export const DEFAULT_ACCOUNTS = [
+  { name: 'Branch Admin',    email: 'admin@rsgroup.in',     phone: '+91 90000 10001', role: 'branch_admin',    password: 'admin123' },
+  { name: 'Branch Manager',  email: 'manager@rsgroup.in',   phone: '+91 90000 10002', role: 'branch_manager',  password: 'manager123' },
+  { name: 'Pharmacist',      email: 'pharmacist@rsgroup.in',phone: '+91 90000 10003', role: 'pharmacist',      password: 'pharma123' },
+  { name: 'Billing Staff',   email: 'billing@rsgroup.in',   phone: '+91 90000 10004', role: 'billing_staff',   password: 'billing123' },
+  { name: 'Inventory Staff', email: 'inventory@rsgroup.in', phone: '+91 90000 10005', role: 'inventory_staff', password: 'inventory123' },
+  { name: 'Accountant',      email: 'accounts@rsgroup.in',  phone: '+91 90000 10006', role: 'accountant',      password: 'accounts123' },
+  { name: 'Delivery Staff',  email: 'delivery@rsgroup.in',  phone: '+91 90000 10007', role: 'delivery_staff',  password: 'delivery123' },
+  { name: 'Auditor',         email: 'audit@rsgroup.in',     phone: '+91 90000 10008', role: 'auditor',         password: 'audit123' },
+];
+
 export async function runSeed({ force = false } = {}) {
   await initSchema();
   const { rows: [{ c }] } = await pool.query('SELECT COUNT(*)::int AS c FROM branches');
@@ -92,6 +106,14 @@ export async function runSeed({ force = false } = {}) {
     // Billing staff may discount up to 5% on their own; beyond that needs manager approval
     await db.run(`UPDATE users SET max_discount_percent = 5 WHERE role = 'billing_staff'`);
     const billingStaff = { [branchIds[0]]: userIds[4], [branchIds[1]]: userIds[5], [branchIds[2]]: userIds[6] };
+
+    // ---------- Default login per role (memorable credentials) ----------
+    // One ready-to-use account for every role category. owner@ is above.
+    for (const a of DEFAULT_ACCOUNTS) {
+      await db.run(`INSERT INTO users (name, email, phone, password_hash, role, branch_id)
+        VALUES (?,?,?,?,?,?) ON CONFLICT (email) DO NOTHING`,
+        a.name, a.email, a.phone, bcrypt.hashSync(a.password, 10), a.role, a.role === 'auditor' ? null : branchIds[0]);
+    }
 
     // ---------- Suppliers (10) ----------
     const suppliersData = [
