@@ -11,9 +11,25 @@ These instructions load automatically for every prompt in this repository.
 - **memory** — ALWAYS active. At session start, read `.claude/project-memory.md`
   for accumulated project context. After completing any significant task,
   append a dated one-line entry (decision made / thing changed / gotcha found).
-- Additional requested skills (graphify, headroom, ponytail) are not yet
-  available in this environment. If they appear in the user's skill list later,
-  treat them as always-on for this project too.
+- **ponytail** — ALWAYS active for coding. Climb the decision ladder (does it
+  need to exist → reuse → stdlib → native → installed dep → one line → minimal
+  code) before writing anything. Default intensity full. Disable with "ponytail off".
+- **headroom** — ALWAYS active. Compress large tool output (logs, dumps, file
+  reads, query results, diffs) to the signal before surfacing it; preserve exact
+  identifiers, numbers and `file:line`. Disable with "headroom off".
+
+## On-demand skills
+
+- **graphify** — reason over the codebase as a graph of entities/relationships
+  (routes ↔ tables ↔ pages ↔ screens ↔ permissions) for tracing, impact analysis
+  and onboarding. Invoke when a task spans many files.
+- **ruflo** — agent meta-harness mindset (decompose → delegate → verify →
+  converge) for large migrations, audits, or parallel fan-out work.
+
+Note: caveman, memory and ponytail are true prompt-skills (fully active).
+headroom, graphify and ruflo are behavioral ports installed here — their full
+upstream engines (compression proxy / graph MCP / ruflo plugins+MCP) are not
+installed in this environment.
 
 ## Project facts
 
