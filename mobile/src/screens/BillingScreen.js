@@ -6,6 +6,9 @@ import { useAuth, useBranch, can } from '../../App';
 import { colors, shadow } from '../theme';
 import { Field, Chips, Btn, BranchBar } from '../ui';
 
+// A phone number vs a typed name — used to decide how to treat the customer box.
+const looksLikePhone = s => /^[+\d][\d\s-]{4,}$/.test((s || '').trim());
+
 export default function BillingScreen() {
   const { user } = useAuth();
   const { branchId, options } = useBranch();
@@ -73,9 +76,9 @@ export default function BillingScreen() {
   // Open the add-customer form, prefilling whatever is typed (name or phone)
   const openNewCustomer = () => {
     const term = phone.trim();
-    const looksLikePhone = /^[+\d][\d\s-]{4,}$/.test(term);
+    const isPhone = looksLikePhone(term);
     setNewCust({
-      name: looksLikePhone ? '' : term, phone: looksLikePhone ? term : '',
+      name: isPhone ? '' : term, phone: isPhone ? term : '',
       address: '', customer_type: 'individual', gstin: '', discount_percent: '',
     });
     setCustResults([]);
@@ -153,8 +156,19 @@ export default function BillingScreen() {
     : discType === 'customer' ? `Customer ${customer?.discount_percent || 0}%`
     : selectedPromo ? `Offer: ${selectedPromo.name}` : 'Offer';
 
-  const save = async (approvalCreds = null) => {
+  const save = async (approvalCreds = null, walkIn = false) => {
     if (!cart.length) return;
+    const typed = phone.trim();
+    // If a NAME was typed but no customer is attached, offer to save it for
+    // reuse instead of losing it (a raw name can't be stored as a phone).
+    if (!approvalCreds && !walkIn && !customer && typed && !looksLikePhone(typed)) {
+      return Alert.alert('Save this customer?',
+        `"${typed}" looks like a name. Add it as a customer so it's stored for next time, or bill as a walk-in.`,
+        [
+          { text: 'Add customer', onPress: openNewCustomer },
+          { text: 'Bill as walk-in', style: 'cancel', onPress: () => save(null, true) },
+        ]);
+    }
     setBusy(true);
     try {
       const d = await api('/sales', {
@@ -163,7 +177,8 @@ export default function BillingScreen() {
           branch_id: activeBranch || undefined,
           items: cart.map(i => ({ batch_id: i.batch_id, qty: i.qty })),
           customer_id: customer?.id || undefined,
-          customer_phone: phone || undefined,
+          // Only send a phone when it really is one — never store a name as a phone
+          customer_phone: customer ? undefined : (looksLikePhone(typed) ? typed : undefined),
           discount: { type: billDisc > 0 ? discType : 'none', value: Number(discValue) || 0, promo_id: promoId },
           payment: { cash: 0, upi: 0, card: 0, credit: 0, [payMode]: total },
           approval: approvalCreds || undefined,
