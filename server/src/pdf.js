@@ -163,6 +163,63 @@ export async function invoicePdf(res, sale, items, branch, customer, staff, prin
   doc.end();
 }
 
+// Compact 80mm thermal-roll receipt (SN/Description/Batch/Exp/Amount rows,
+// round-off + "you saved" line) — mirrors typical pharmacy POS printouts.
+export async function thermalReceiptPdf(res, sale, items, branch, customer, staff, printedBy = '') {
+  const invoiceCfg = (await getSetting('invoice', {})) || {};
+  const company = (await getSetting('company', {})) || {};
+  const W = 227, M = 8, CW = W - M * 2;
+  const doc = new PDFDocument({ size: [W, 195 + items.length * 9], margin: M });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="receipt-${sale.invoice_no.replaceAll('/', '-')}.pdf"`);
+  doc.pipe(res);
+
+  const pad = (v, n, right = false) => {
+    const s = String(v ?? '').slice(0, n);
+    return right ? s.padStart(n) : s.padEnd(n);
+  };
+  const cols = [['SN', 2], ['DESCRIPTION', 18], ['QTY', 3, true], ['BATCH', 7], ['EXP', 5], ['AMOUNT', 8, true]];
+  const row = vals => cols.map(([, n, right], i) => pad(vals[i], n, right)).join(' ');
+  const dash = '-'.repeat(cols.reduce((a, [, n]) => a + n + 1, -1));
+  const centered = (text, size, bold) => doc.font(bold ? 'Courier-Bold' : 'Courier').fontSize(size).text(text, { width: CW, align: 'center' });
+
+  centered(company.name || 'RS Group', 9, true);
+  if (company.division) centered(company.division, 6.5);
+  centered(branch?.address || company.address || '', 6.5);
+  const lic = [branch?.gstin || company.gstin, branch?.drug_license || company.drug_license].filter(Boolean).join('  ');
+  if (lic) centered(lic, 6.5);
+  if (branch?.phone || company.phone) centered(`Ph: ${branch?.phone || company.phone}`, 6.5);
+  doc.moveDown(0.3);
+  doc.font('Courier').fontSize(6.5).text(dash);
+  doc.text(`Bill No: ${sale.invoice_no}`);
+  doc.text(`Date: ${sale.created_at}`);
+  doc.text(`Name: ${customer ? `${customer.name} (${customer.phone})` : 'Walk-in Customer'}`);
+  if (sale.doctor_name) doc.text(`Doctor: ${sale.doctor_name}`);
+  doc.text(dash);
+  doc.font('Courier-Bold').text(row(['SN', 'DESCRIPTION', 'QTY', 'BATCH', 'EXP', 'AMOUNT']));
+  doc.text(dash);
+  doc.font('Courier');
+  items.forEach((it, i) => {
+    doc.text(row([i + 1, it.medicine_name, it.qty, it.batch_no, (it.expiry_date || '').slice(2, 7), Number(it.total).toFixed(2)]));
+  });
+  doc.text(dash);
+
+  const grossAmount = round2(sale.subtotal - sale.discount);
+  doc.fontSize(7.5).text(`TOTAL: ${rupee(grossAmount)}`, { align: 'right' });
+  if (sale.round_off) doc.text(`R.OFF: ${rupee(sale.round_off)}`, { align: 'right' });
+  doc.fontSize(6.5).text(dash);
+  doc.font('Courier-Bold').fontSize(10).text(`NET PAYABLE: ${rupee(sale.total)}`, { align: 'right' });
+  doc.font('Courier').fontSize(7);
+  const savings = round2(items.reduce((a, it) => a + (it.mrp - it.price) * it.qty, 0) + round2(sale.discount || 0) + round2(sale.item_discount || 0));
+  if (savings > 0) centered(`You saved Rs. ${savings.toFixed(2)}`, 7);
+  doc.moveDown(0.3);
+  doc.fontSize(6.5).text(dash);
+  if (invoiceCfg.terms) centered(invoiceCfg.terms, 6.5);
+  centered(invoiceCfg.footer || 'Thank you! Get well soon.', 6.5);
+  centered(`Printed by ${printedBy || staff?.name || ''} on ${new Date().toISOString().replace('T', ' ').slice(0, 16)}`, 6);
+  doc.end();
+}
+
 // Page number + printed-by footer on every buffered page
 export function stampFooter(doc, printedBy) {
   const range = doc.bufferedPageRange();

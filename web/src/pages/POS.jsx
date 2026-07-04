@@ -511,7 +511,7 @@ export function BillDoneModal({ sale, onClose }) {
         <button className="btn ghost" onClick={onClose}>New Bill</button>
         <button className="btn orange" onClick={wa}>📱 WhatsApp</button>
         <a className="btn green" href={fileUrl(`/sales/${sale.id}/pdf`)} target="_blank" rel="noreferrer">⬇ PDF Bill</a>
-        <button className="btn" onClick={() => window.open(fileUrl(`/sales/${sale.id}/pdf`), '_blank')?.print?.()}>🖨 Print</button>
+        <button className="btn" onClick={() => window.open(fileUrl(`/sales/${sale.id}/pdf?format=thermal`), '_blank')?.print?.()}>🖨 Print Receipt</button>
       </>
     }>
       <div style={{ textAlign: 'center', padding: '6px 0 14px' }}>
