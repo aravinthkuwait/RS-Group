@@ -27,10 +27,12 @@ export default function BillingScreen() {
   const [promoId, setPromoId] = useState(null);
   const [promos, setPromos] = useState([]);
   const [approval, setApproval] = useState(null); // {message, email, password}
+  const [newCust, setNewCust] = useState(null); // add-customer modal form
   const [permission, requestPermission] = useCameraPermissions();
   const debounce = useRef(null);
   const custDebounce = useRef(null);
 
+  const canManageCustomers = can(user, 'customers.manage');
   const canDiscount = can(user, 'billing.discount');
   const limit = user.discount_limit ?? 10;
 
@@ -66,6 +68,35 @@ export default function BillingScreen() {
   const clearCustomer = () => {
     setCustomer(null); setPhone('');
     if (discType === 'customer') setDiscType('none');
+  };
+
+  // Open the add-customer form, prefilling whatever is typed (name or phone)
+  const openNewCustomer = () => {
+    const term = phone.trim();
+    const looksLikePhone = /^[+\d][\d\s-]{4,}$/.test(term);
+    setNewCust({
+      name: looksLikePhone ? '' : term, phone: looksLikePhone ? term : '',
+      address: '', customer_type: 'individual', gstin: '', discount_percent: '',
+    });
+    setCustResults([]);
+  };
+  const saveNewCustomer = async () => {
+    const f = newCust;
+    if (!f.name.trim() || !f.phone.trim()) return Alert.alert('Missing details', 'Name and mobile number are required.');
+    setBusy(true);
+    try {
+      const { id } = await api('/customers', { method: 'POST', body: {
+        name: f.name.trim(), phone: f.phone.trim(), address: f.address,
+        customer_type: f.customer_type, gstin: f.gstin,
+        discount_percent: Number(f.discount_percent) || 0, branch_id: activeBranch,
+      } });
+      // Select the freshly created customer for this bill
+      setCustomer({ id, name: f.name.trim(), phone: f.phone.trim(),
+        discount_percent: Number(f.discount_percent) || 0, loyalty_points: 0, total_bills: 0 });
+      setPhone(f.phone.trim()); setNewCust(null);
+      Alert.alert('Customer added ✓', `${f.name.trim()} is now attached to this bill.`);
+    } catch (e) { Alert.alert('Could not add customer', e.message); }
+    setBusy(false);
   };
 
   const add = r => {
@@ -219,13 +250,17 @@ export default function BillingScreen() {
             </ScrollView>
           </View>
         )}
-        {customer && (
+        {customer ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
             <Text style={{ color: colors.green, fontSize: 12, flex: 1 }}>
               ✓ {customer.name}{Number(customer.discount_percent) > 0 ? ` · special discount ${customer.discount_percent}%` : ''}
             </Text>
             <TouchableOpacity onPress={clearCustomer}><Text style={{ color: colors.red, fontSize: 12 }}>✕ change</Text></TouchableOpacity>
           </View>
+        ) : canManageCustomers && (
+          <TouchableOpacity onPress={openNewCustomer} style={{ marginBottom: 8 }}>
+            <Text style={{ color: colors.brand, fontWeight: '700', fontSize: 13 }}>＋ Add new customer</Text>
+          </TouchableOpacity>
         )}
         {canDiscount && (
           <TouchableOpacity onPress={() => setDiscOpen(true)}
@@ -291,6 +326,26 @@ export default function BillingScreen() {
             </ScrollView>
           </View>
         </View>
+      </Modal>
+
+      {/* Add new customer from within billing */}
+      <Modal visible={!!newCust} animationType="slide" onRequestClose={() => setNewCust(null)}>
+        {newCust && (
+          <ScrollView style={{ flex: 1, backgroundColor: colors.surface }} contentContainerStyle={{ padding: 16, paddingTop: 40 }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', marginBottom: 12 }}>New customer</Text>
+            <Field label="Full name *" value={newCust.name} onChangeText={v => setNewCust(c => ({ ...c, name: v }))} />
+            <Field label="Mobile number *" keyboardType="phone-pad" value={newCust.phone} onChangeText={v => setNewCust(c => ({ ...c, phone: v }))} />
+            <Field label="Address" value={newCust.address} onChangeText={v => setNewCust(c => ({ ...c, address: v }))} />
+            <Chips label="Customer type" value={newCust.customer_type} onChange={v => setNewCust(c => ({ ...c, customer_type: v }))}
+              options={[{ value: 'individual', label: 'Individual' }, { value: 'business', label: 'Business (GST)' }]} />
+            {newCust.customer_type === 'business' && (
+              <Field label="GST number (GSTIN)" autoCapitalize="characters" value={newCust.gstin} onChangeText={v => setNewCust(c => ({ ...c, gstin: v }))} />
+            )}
+            <Field label="Special discount % (optional)" keyboardType="numeric" value={String(newCust.discount_percent)} onChangeText={v => setNewCust(c => ({ ...c, discount_percent: v }))} />
+            <Btn title={busy ? 'Saving…' : '💾 Save & attach to bill'} color={colors.green} disabled={busy} onPress={saveNewCustomer} />
+            <Btn title="Cancel" color={colors.ink3} onPress={() => setNewCust(null)} />
+          </ScrollView>
+        )}
       </Modal>
 
       {/* Manager approval when over the limit */}
