@@ -1,6 +1,10 @@
 name: EAS Build (Android APK)
 
-# Auto-build the native APK on EAS whenever the mobile app changes.
+# Rebuild the native APK ONLY when an over-the-air update can't deliver the
+# change — i.e. native code / dependencies / app config / assets. Everyday
+# JS & asset edits are shipped by the EAS Update (OTA) workflow instead, so
+# this fires on the few files that change the native fingerprint, plus a
+# manual "Run workflow" button.
 # Requires one repo secret: EXPO_TOKEN
 #   Create it at https://expo.dev/accounts/aravinthkuwait/settings/access-tokens
 #   then add it under GitHub → repo → Settings → Secrets and variables → Actions.
@@ -8,9 +12,14 @@ on:
   push:
     branches: [main, claude/rs-group-medical-saas-k2eivu]
     paths:
-      - 'mobile/**'
+      - 'mobile/package.json'
+      - 'mobile/package-lock.json'
+      - 'mobile/app.json'
+      - 'mobile/app.config.js'
+      - 'mobile/eas.json'
+      - 'mobile/assets/**'
       - '.github/workflows/eas-build.yml'
-  workflow_dispatch: {} # allows a manual "Run workflow" button too
+  workflow_dispatch: {} # manual "Run workflow" button for any other native change
 
 jobs:
   build:
