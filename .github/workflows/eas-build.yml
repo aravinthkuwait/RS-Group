@@ -1,13 +1,15 @@
 name: EAS Build (Android APK)
 
-# Rebuild the native APK ONLY when an over-the-air update can't deliver the
-# change — i.e. native code / dependencies / app config / assets. Everyday
-# JS & asset edits are shipped by the EAS Update (OTA) workflow instead, so
-# this fires on the few files that change the native fingerprint, plus a
-# manual "Run workflow" button.
+# Build a new APK ONLY when an over-the-air update genuinely can't deliver the
+# change. Everyday JS/asset edits go out via the EAS Update (OTA) workflow.
+# This workflow runs when a native-affecting file changes, but then compares
+# the project's native FINGERPRINT against the last built APK — if the
+# fingerprint is unchanged (e.g. a version bump, an OTA-config edit, or a
+# JS-only dependency), it skips the build and lets OTA handle it. It only
+# builds when the fingerprint actually changed (new native module, permission,
+# SDK, plugin, etc.) — the one case OTA can't cover.
 # Requires one repo secret: EXPO_TOKEN
-#   Create it at https://expo.dev/accounts/aravinthkuwait/settings/access-tokens
-#   then add it under GitHub → repo → Settings → Secrets and variables → Actions.
+#   https://expo.dev/accounts/aravinthkuwait/settings/access-tokens
 on:
   push:
     branches: [main, claude/rs-group-medical-saas-k2eivu]
@@ -19,7 +21,12 @@ on:
       - 'mobile/eas.json'
       - 'mobile/assets/**'
       - '.github/workflows/eas-build.yml'
-  workflow_dispatch: {} # manual "Run workflow" button for any other native change
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force a build even if the native fingerprint is unchanged'
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -45,5 +52,38 @@ jobs:
       - name: Install dependencies
         run: npm ci || npm install
 
-      - name: Trigger Android APK build (preview profile)
+      - name: Compute current native fingerprint
+        id: current
+        run: |
+          HASH=$(npx @expo/fingerprint . | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log(JSON.parse(s).hash||'')}catch{console.log('')}})")
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Current fingerprint: $HASH"
+
+      - name: Fingerprint of last built APK
+        id: last
+        run: |
+          LAST=$(eas build:list --platform android --status finished --limit 1 --non-interactive --json 2>/dev/null \
+            | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const b=JSON.parse(s);const f=(b[0]&&(b[0].fingerprint?.fingerprintHash||b[0].fingerprintHash))||'';console.log(f)}catch{console.log('')}})" || echo "")
+          echo "hash=$LAST" >> "$GITHUB_OUTPUT"
+          echo "Last built fingerprint: $LAST"
+
+      - name: Decide whether a native build is needed
+        id: decide
+        run: |
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            echo "build=yes" >> "$GITHUB_OUTPUT"; echo "Forced build requested."
+          elif [ -z "${{ steps.last.outputs.hash }}" ]; then
+            echo "build=yes" >> "$GITHUB_OUTPUT"; echo "No prior build fingerprint — building."
+          elif [ "${{ steps.current.outputs.hash }}" != "${{ steps.last.outputs.hash }}" ]; then
+            echo "build=yes" >> "$GITHUB_OUTPUT"; echo "Native fingerprint changed — a rebuild is required."
+          else
+            echo "build=no" >> "$GITHUB_OUTPUT"; echo "Native fingerprint unchanged — OTA covers this, skipping APK build."
+          fi
+
+      - name: Build Android APK (native change — OTA can't deliver it)
+        if: steps.decide.outputs.build == 'yes'
         run: eas build --platform android --profile preview --non-interactive --no-wait
+
+      - name: Skip build (OTA update is sufficient)
+        if: steps.decide.outputs.build == 'no'
+        run: echo "✅ No native change — the EAS Update (OTA) workflow ships this change; no APK build needed."
