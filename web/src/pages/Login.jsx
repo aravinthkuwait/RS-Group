@@ -60,9 +60,6 @@ export default function Login() {
             <div style={{ textAlign: 'center', marginTop: 14 }}>
               <a href="#" onClick={e => { e.preventDefault(); setMode('forgot'); setErr(''); }}>Forgot password?</a>
             </div>
-            <div className="muted" style={{ marginTop: 18, textAlign: 'center', fontSize: '.76rem' }}>
-              Demo: owner@rsgroup.in / rsgroup123 · karthik@rsgroup.in (branch manager) · suresh@rsgroup.in (billing)
-            </div>
           </>
         )}
         {mode === 'forgot' && (
