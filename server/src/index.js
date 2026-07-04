@@ -66,6 +66,9 @@ if (dbReady && process.env.SEED_ON_EMPTY !== '0') {
   }
 }
 
+// Ultra-light heartbeat for the client connectivity indicator (no DB hit).
+app.get('/api/ping', (req, res) => res.json({ ok: true, t: Date.now() }));
+
 app.get('/api/health', async (req, res) => {
   try {
     await pool.query('SELECT 1');
