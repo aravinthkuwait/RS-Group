@@ -98,7 +98,14 @@ Whenever stock **arrives** in your branch (purchase entry, transfer received, or
 ## 5. Purchases & suppliers
 
 - **Suppliers** — contact details, GSTIN, payment terms, opening balance. The ledger shows every purchase, return and payment with a running balance.
-- **New purchase** — pick supplier, enter invoice no./date, add items with batch no., expiry, quantity (+ free qty), purchase price, MRP, selling price. Saving **adds the stock immediately** and records how much was paid; the rest sits as supplier due.
+- **New purchase** — pick supplier, enter invoice no./date, then add each item with:
+  - **Medicine** — search an existing one, or type a new name to create it inline
+  - **Brand name** & **Generic name** — searchable master lists; pick an existing value or add a new one (one generic can have many brands)
+  - **Strip count** — tablets/capsules per strip (used in inventory & billing)
+  - **Batch number** (mandatory) and **Expiry (MM/YYYY)** (mandatory)
+  - Quantity (+ free qty), purchase price, MRP, selling price
+  Saving **adds the stock immediately** batch-wise and records how much was paid; the rest sits as supplier due.
+- **Edit / delete** — you can edit a purchase's invoice details, or delete a purchase to reverse the stock it added (refused once any of that stock has been sold — use a return instead).
 - **Purchase returns** — return items to the supplier (stock is reduced, due is adjusted).
 - **Supplier payments** — record payments any time; dues appear on the dashboard.
 
@@ -122,7 +129,7 @@ Whenever stock **arrives** in your branch (purchase entry, transfer received, or
 
 ## 8. Reports
 
-**Reports** page (owner/manager/accountant/auditor): Sales, Product-wise, Staff sales, **Discounts**, Stock, Expiry, Purchases, GST/Tax, Profit & Loss.
+**Reports** page (owner/manager/accountant/auditor): Sales, Product-wise, Staff sales, **Discounts**, Stock (batch-wise), **Brand-wise stock**, **Generic-wise stock**, **Low stock**, Expiry, Purchases, GST/Tax, Profit & Loss.
 - Filter by date range and branch. Every report downloads as **PDF or Excel**.
 - Every PDF carries the company logo & address, branch, period, page numbers, and **who downloaded it and when**.
 
@@ -158,7 +165,8 @@ Same login as the web app. Company logo appears on every page header.
 |---|---|
 | Home | Today/month sales, low stock, expiry risk, best sellers, quick links |
 | Billing | Search or **scan barcodes with the camera**, live customer search by mobile/name, discounts incl. offers + manager approval, save bill |
-| Stock | Live stock search; long-press to adjust |
+| Stock | Live stock search (name/batch/brand/generic); long-press to adjust |
+| Purchases | List purchases; **New Purchase Entry** with supplier/brand/generic pickers, MM/YYYY expiry, strip count, barcode scan, and auto-saved draft |
 | Expiry | Expired + expiring batches |
 | Customers | Search, view credit/loyalty, **add customers** (with GST + special discount) |
 | Reports | All 9 reports with branch filter |
