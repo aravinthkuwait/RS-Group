@@ -18,6 +18,7 @@ import Staff from './pages/Staff.jsx';
 import Settings from './pages/Settings.jsx';
 import Offers from './pages/Offers.jsx';
 import StockUpdates from './pages/StockUpdates.jsx';
+import Usage from './pages/Usage.jsx';
 
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
@@ -109,6 +110,7 @@ export default function App() {
                 <Route path="/reports" element={<Protected user={user} perm="reports.view"><Reports /></Protected>} />
                 <Route path="/staff" element={<Protected user={user} perm={['staff.manage', 'tasks.view', 'delivery.view', 'attendance.self']}><Staff /></Protected>} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/usage" element={<Protected user={user} perm="settings.manage"><Usage /></Protected>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
               <Route path="*" element={<Navigate to={user ? '/' : '/login'} replace />} />
