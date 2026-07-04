@@ -235,6 +235,99 @@ router.post('/factory-reset', requirePermission('settings.manage'), wrap(async (
   res.json({ ok: true, message: 'All data deleted. Add your real branches, staff and medicines to begin.' });
 }));
 
+// ---------------- Usage & cost monitor ----------------
+// Surfaces what actually drives Supabase/Railway cost: DB size by table, the
+// big base64 file blobs, and the ever-growing log tables — with cleanup.
+router.get('/usage', requirePermission('settings.manage'), wrap(async (req, res) => {
+  const dbSize = await get(`SELECT pg_database_size(current_database()) AS bytes`);
+
+  // Size + estimated rows per table (biggest first)
+  const tables = await all(`
+    SELECT c.relname AS name,
+      pg_total_relation_size(c.oid) AS bytes,
+      pg_relation_size(c.oid) AS data_bytes,
+      pg_total_relation_size(c.oid) - pg_relation_size(c.oid) AS index_toast_bytes,
+      GREATEST(c.reltuples, 0)::bigint AS est_rows
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'rsgroup' AND c.relkind = 'r'
+    ORDER BY pg_total_relation_size(c.oid) DESC`);
+  const totalTableBytes = tables.reduce((a, t) => a + Number(t.bytes), 0) || 1;
+  const tableRows = tables.map(t => ({ ...t, pct: Math.round(Number(t.bytes) / totalTableBytes * 1000) / 10 }));
+
+  // The heaviest hidden cost: base64 files stored inline in the DB
+  const rx = await get(`SELECT COUNT(*) FILTER (WHERE prescription_file IS NOT NULL) AS count,
+    COALESCE(SUM(length(prescription_file)),0) AS bytes FROM sales`);
+  const inv = await get(`SELECT COUNT(*) FILTER (WHERE invoice_file IS NOT NULL) AS count,
+    COALESCE(SUM(length(invoice_file)),0) AS bytes FROM purchases`);
+
+  // Unbounded log tables — grow forever, safe to prune
+  const growth = {};
+  for (const t of ['audit_logs', 'notifications', 'login_history', 'sessions']) {
+    growth[t] = await get(`SELECT COUNT(*) AS rows, MIN(created_at)::date AS oldest FROM ${t}`);
+  }
+  growth.sessions.stale = (await get(`SELECT COUNT(*) AS c FROM sessions WHERE revoked = 1 OR last_seen < now() - interval '7 days'`)).c;
+  growth.notifications.read = (await get(`SELECT COUNT(*) AS c FROM notifications WHERE read = 1 AND created_at < now() - interval '30 days'`)).c;
+  growth.login_history.old = (await get(`SELECT COUNT(*) AS c FROM login_history WHERE created_at < now() - interval '90 days'`)).c;
+
+  // Activity load (proxy for Railway compute / egress)
+  const activity = {
+    bills_30d: (await get(`SELECT COUNT(*) AS c FROM sales WHERE created_at > now() - interval '30 days'`)).c,
+    active_sessions: (await get(`SELECT COUNT(*) AS c FROM sessions WHERE revoked = 0 AND last_seen > now() - interval '1 day'`)).c,
+  };
+
+  // Recommendations — what to resolve, ranked
+  const recs = [];
+  const mb = b => Number(b) / 1048576;
+  if (mb(rx.bytes) + mb(inv.bytes) > 20) recs.push({ level: 'high', text: `Prescription/invoice files use ${(mb(rx.bytes) + mb(inv.bytes)).toFixed(1)} MB stored inside the database (expensive storage + backup + egress). Consider moving them to object storage, or purge old ones.` });
+  if (growth.audit_logs.rows > 50000) recs.push({ level: 'med', text: `Audit log has ${growth.audit_logs.rows} rows. Archive/prune entries older than a year.` });
+  if (growth.login_history.old > 0) recs.push({ level: 'low', text: `${growth.login_history.old} login-history rows are older than 90 days — safe to prune.` });
+  if (growth.sessions.stale > 0) recs.push({ level: 'low', text: `${growth.sessions.stale} stale/revoked sessions can be cleared.` });
+  if (growth.notifications.read > 0) recs.push({ level: 'low', text: `${growth.notifications.read} read notifications older than 30 days can be cleared.` });
+  if (!recs.length) recs.push({ level: 'ok', text: 'No cost hot-spots detected. Database footprint is lean.' });
+
+  res.json({
+    db_bytes: Number(dbSize.bytes),
+    tables: tableRows,
+    blobs: { prescriptions: { count: rx.count, bytes: Number(rx.bytes) }, invoices: { count: inv.count, bytes: Number(inv.bytes) } },
+    growth, activity, recommendations: recs,
+    providers: [
+      { name: 'Supabase (database)', drivers: 'storage, egress, backups', url: 'https://supabase.com/dashboard/project/rpwndipzblvrbcdqzwdb/settings/billing' },
+      { name: 'Railway (hosting)', drivers: 'CPU / RAM / network', url: 'https://railway.app/dashboard' },
+      { name: 'Expo EAS (mobile builds)', drivers: 'build minutes', url: 'https://expo.dev/accounts/aravinthkuwait/settings/billing' },
+    ],
+  });
+}));
+
+// Prune a chosen growth source to reclaim space (owner only)
+router.post('/usage/cleanup', requirePermission('settings.manage'), wrap(async (req, res) => {
+  if (req.user.role !== 'super_admin') return res.status(403).json({ error: 'Only the owner can run cleanup' });
+  const { target } = req.body || {};
+  let removed = 0, label = '';
+  if (target === 'sessions') {
+    removed = (await run(`DELETE FROM sessions WHERE revoked = 1 OR last_seen < now() - interval '7 days'`)).changes || 0;
+    label = 'stale/revoked sessions';
+  } else if (target === 'login_history') {
+    removed = (await run(`DELETE FROM login_history WHERE created_at < now() - interval '90 days'`)).changes || 0;
+    label = 'login history older than 90 days';
+  } else if (target === 'notifications') {
+    removed = (await run(`DELETE FROM notifications WHERE read = 1 AND created_at < now() - interval '30 days'`)).changes || 0;
+    label = 'read notifications older than 30 days';
+  } else if (target === 'audit_logs') {
+    removed = (await run(`DELETE FROM audit_logs WHERE created_at < now() - interval '365 days'`)).changes || 0;
+    label = 'audit entries older than 1 year';
+  } else if (target === 'prescriptions') {
+    removed = (await run(`UPDATE sales SET prescription_file = NULL WHERE prescription_file IS NOT NULL AND created_at < now() - interval '180 days'`)).changes || 0;
+    label = 'prescription files older than 6 months';
+  } else if (target === 'invoice_files') {
+    removed = (await run(`UPDATE purchases SET invoice_file = NULL WHERE invoice_file IS NOT NULL AND invoice_date < now() - interval '180 days'`)).changes || 0;
+    label = 'supplier invoice files older than 6 months';
+  } else {
+    return res.status(400).json({ error: 'Unknown cleanup target' });
+  }
+  audit(req, 'usage_cleanup', 'settings', null, `Cleared ${removed} ${label}`);
+  res.json({ ok: true, removed, message: `Cleared ${removed} ${label}.` });
+}));
+
 // ---------------- Data export (JSON) ----------------
 // Database-level backups are managed by Supabase (Dashboard → Database → Backups).
 // This endpoint exports all business data as JSON for an extra, portable copy.

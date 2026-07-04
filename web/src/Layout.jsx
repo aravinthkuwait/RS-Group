@@ -23,6 +23,7 @@ const NAV = [
   { to: '/reports', icon: '📑', label: 'Reports', perm: ['reports.view'] },
   { section: 'Team' },
   { to: '/staff', icon: '🧑‍⚕️', label: 'Staff & Tasks', perm: ['staff.manage', 'tasks.view', 'delivery.view', 'attendance.self'] },
+  { to: '/usage', icon: '💰', label: 'Usage & Cost', perm: ['settings.manage'] },
   { to: '/settings', icon: '⚙️', label: 'Settings', perm: [] },
 ];
 
@@ -31,7 +32,7 @@ const TITLES = {
   '/alerts': 'Stock & Expiry Alerts', '/stock-updates': 'Stock Update Notifications',
   '/purchases': 'Purchases & Suppliers', '/transfers': 'Stock Transfers',
   '/customers': 'Customers', '/offers': 'Discounts & Offers', '/accounts': 'Accounts & Expenses', '/reports': 'Reports',
-  '/staff': 'Staff, Tasks & Deliveries', '/settings': 'Settings',
+  '/staff': 'Staff, Tasks & Deliveries', '/settings': 'Settings', '/usage': 'Usage & Cost Monitor',
 };
 
 // Routes where the "new stock" popup should surface immediately

@@ -300,5 +300,16 @@ ok('audit log populated', logs.logs.length > 10, `${logs.logs.length} entries`);
 const lh = (await req('/auth/login-history', 'GET', null, OT)).data;
 ok('login history', lh.history.length > 0, `${lh.history.length} entries`);
 
+console.log('— Usage & cost monitor —');
+const usage = (await req('/admin/usage', 'GET', null, OT)).data;
+ok('usage: db size + table breakdown', usage.db_bytes > 0 && Array.isArray(usage.tables) && usage.tables.length > 10, `${(usage.db_bytes / 1048576).toFixed(1)} MB, ${usage.tables?.length} tables`);
+ok('usage: blob + growth + recommendations', !!usage.blobs && !!usage.growth && Array.isArray(usage.recommendations) && usage.providers.length === 3);
+const usageDenied = await req('/admin/usage', 'GET', null, T);
+ok('usage: billing staff denied', usageDenied.status === 403);
+const clean = await req('/admin/usage/cleanup', 'POST', { target: 'sessions' }, OT);
+ok('usage: cleanup runs', clean.status === 200 && typeof clean.data.removed === 'number');
+const cleanBad = await req('/admin/usage/cleanup', 'POST', { target: 'nope' }, OT);
+ok('usage: unknown cleanup target rejected', cleanBad.status === 400);
+
 console.log(`\n===== ${pass} passed, ${fail} failed =====`);
 process.exit(fail ? 1 : 0);
