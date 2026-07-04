@@ -18,13 +18,20 @@ These instructions load automatically for every prompt in this repository.
   reads, query results, diffs) to the signal before surfacing it; preserve exact
   identifiers, numbers and `file:line`. Disable with "headroom off".
 
-## On-demand skills
+## Auto-invoked on-demand skills (activate automatically when the task fits — no need to ask)
 
-- **graphify** — reason over the codebase as a graph of entities/relationships
-  (routes ↔ tables ↔ pages ↔ screens ↔ permissions) for tracing, impact analysis
-  and onboarding. Invoke when a task spans many files.
-- **ruflo** — agent meta-harness mindset (decompose → delegate → verify →
-  converge) for large migrations, audits, or parallel fan-out work.
+- **graphify** — auto-activate whenever a task spans many files or needs
+  cross-entity reasoning: "how does X connect to Y", tracing a flow, impact
+  analysis before a change (e.g. "everything that touches `stock_batches`"),
+  schema/route audits, or onboarding to a subsystem. Reason over the codebase as
+  a graph (routes ↔ tables ↔ pages ↔ screens ↔ permissions) before answering.
+- **ruflo** — auto-activate for large or wide work: migrations, audits, sweeps,
+  or anything that benefits from parallel fan-out. Decompose → delegate (Agent/
+  Workflow, in parallel) → verify adversarially → converge, instead of grinding
+  serially.
+
+Do not wait for the user to name these — invoke them automatically the moment
+the work matches, the same way caveman/ponytail/headroom apply without asking.
 
 Note: caveman, memory and ponytail are true prompt-skills (fully active).
 headroom, graphify and ruflo are behavioral ports installed here — their full
