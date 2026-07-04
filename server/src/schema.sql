@@ -446,3 +446,6 @@ ALTER TABLE sales ADD COLUMN IF NOT EXISTS item_discount DOUBLE PRECISION DEFAUL
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS promo_id INTEGER REFERENCES promotions(id);
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS discount_approved_by INTEGER REFERENCES users(id);
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS data TEXT;
+
+-- v4: strip count on medicines (tablets/capsules per strip)
+ALTER TABLE medicines ADD COLUMN IF NOT EXISTS strip_count INTEGER DEFAULT 1;

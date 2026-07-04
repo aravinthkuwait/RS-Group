@@ -60,10 +60,26 @@ router.get('/dashboard', requirePermission('dashboard.view'), wrap(async (req, r
     FROM branches br LEFT JOIN stock_batches b ON b.branch_id = br.id AND b.qty > 0
     WHERE br.active = 1 GROUP BY br.id`);
 
-  const expiryRisk = await get(`SELECT COUNT(*) AS batches, ROUND(COALESCE(SUM(b.qty * b.purchase_price),0)::numeric, 2) AS value
-    FROM stock_batches b WHERE b.qty > 0 AND b.expiry_date <= CURRENT_DATE + 90 ${sbw}`, ...bp);
+  const expiryBand = (days) => get(`SELECT COUNT(*) AS batches, ROUND(COALESCE(SUM(b.qty * b.purchase_price),0)::numeric, 2) AS value
+    FROM stock_batches b WHERE b.qty > 0 AND b.expiry_date >= CURRENT_DATE AND b.expiry_date <= CURRENT_DATE + ${days} ${sbw}`, ...bp);
+  const expiring30 = await expiryBand(30);
+  const expiring60 = await expiryBand(60);
+  const expiryRisk = await expiryBand(90);
   const expiredValue = await get(`SELECT COUNT(*) AS batches, ROUND(COALESCE(SUM(b.qty * b.purchase_price),0)::numeric, 2) AS value
     FROM stock_batches b WHERE b.qty > 0 AND b.expiry_date < CURRENT_DATE ${sbw}`, ...bp);
+
+  // Batch-wise stock summary + brand/generic sales (30 days)
+  const batchSummary = await get(`SELECT COUNT(*) AS batches, COALESCE(SUM(b.qty),0)::int AS units,
+      COUNT(DISTINCT b.medicine_id) AS medicines
+    FROM stock_batches b WHERE b.qty > 0 ${sbw}`, ...bp);
+  const topGenerics = await all(`SELECT m.generic_name AS name, SUM(si.qty)::int AS qty, ROUND(SUM(si.total)::numeric, 2) AS amount
+    FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN medicines m ON m.id = si.medicine_id
+    WHERE ${NOT_VOID} AND m.generic_name != '' AND s.created_at >= now() - interval '30 days' ${bw}
+    GROUP BY m.generic_name ORDER BY amount DESC LIMIT 8`, ...bp);
+  const topBrands = await all(`SELECT m.brand AS name, SUM(si.qty)::int AS qty, ROUND(SUM(si.total)::numeric, 2) AS amount
+    FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN medicines m ON m.id = si.medicine_id
+    WHERE ${NOT_VOID} AND m.brand != '' AND s.created_at >= now() - interval '30 days' ${bw}
+    GROUP BY m.brand ORDER BY amount DESC LIMIT 8`, ...bp);
 
   const lowStockCount = (await get(`SELECT COUNT(*) AS c FROM (
     SELECT m.id FROM medicines m LEFT JOIN stock_batches b ON b.medicine_id = m.id ${branchId ? 'AND b.branch_id = ?' : ''}
@@ -93,6 +109,8 @@ router.get('/dashboard', requirePermission('dashboard.view'), wrap(async (req, r
     best_sellers: bestSellers, staff_performance: staffPerf,
     stock_value: stockValue, stock_by_branch: stockByBranch,
     expiry_risk: expiryRisk, expired: expiredValue, low_stock_count: lowStockCount,
+    expiring_30: expiring30, expiring_60: expiring60, expiring_90: expiryRisk,
+    batch_summary: batchSummary, top_generics: topGenerics, top_brands: topBrands,
     supplier_dues: Math.max(0, supplierDues), customer_dues: Math.max(0, customerDues),
     month_expenses: monthExpenses,
     month_profit_net: round2((monthSales.profit || 0) - monthExpenses),
@@ -196,6 +214,44 @@ async function profitReport(req) {
     discounts: sales.discounts, gross_profit: grossProfit,
     expenses, total_expenses: totalExpenses, net_profit: round2(grossProfit - totalExpenses),
   };
+}
+
+// Brand-wise stock: one row per brand across the selected branch(es)
+async function brandStockReport(req) {
+  const branchId = scopeBranch(req);
+  const bw = branchId ? 'AND b.branch_id = ?' : ''; const bp = branchId ? [branchId] : [];
+  const rows = await all(`SELECT m.brand, COUNT(DISTINCT m.id) AS medicines, COUNT(b.id) AS batches,
+      COALESCE(SUM(b.qty),0)::int AS qty, ROUND(COALESCE(SUM(b.qty * b.purchase_price),0)::numeric, 2) AS stock_value,
+      ROUND(COALESCE(SUM(b.qty * b.selling_price),0)::numeric, 2) AS retail_value
+    FROM medicines m LEFT JOIN stock_batches b ON b.medicine_id = m.id AND b.qty > 0 ${bw}
+    WHERE m.active = 1 AND m.brand != ''
+    GROUP BY m.brand ORDER BY stock_value DESC`, ...bp);
+  return { rows };
+}
+
+// Generic-wise stock: one generic can span many brands
+async function genericStockReport(req) {
+  const branchId = scopeBranch(req);
+  const bw = branchId ? 'AND b.branch_id = ?' : ''; const bp = branchId ? [branchId] : [];
+  const rows = await all(`SELECT m.generic_name AS generic, string_agg(DISTINCT m.brand, ', ') AS brands,
+      COUNT(DISTINCT m.id) AS medicines, COALESCE(SUM(b.qty),0)::int AS qty,
+      ROUND(COALESCE(SUM(b.qty * b.purchase_price),0)::numeric, 2) AS stock_value
+    FROM medicines m LEFT JOIN stock_batches b ON b.medicine_id = m.id AND b.qty > 0 ${bw}
+    WHERE m.active = 1 AND m.generic_name != ''
+    GROUP BY m.generic_name ORDER BY stock_value DESC`, ...bp);
+  return { rows };
+}
+
+// Low stock: medicines at/below their minimum level (including out of stock)
+async function lowStockReport(req) {
+  const branchId = scopeBranch(req);
+  const rows = await all(`SELECT m.name AS medicine, m.brand, m.generic_name AS generic, m.unit,
+      m.min_stock, COALESCE(SUM(b.qty),0)::int AS stock,
+      CASE WHEN COALESCE(SUM(b.qty),0) <= 0 THEN 'OUT OF STOCK' ELSE 'LOW' END AS status
+    FROM medicines m LEFT JOIN stock_batches b ON b.medicine_id = m.id ${branchId ? 'AND b.branch_id = ?' : ''}
+    WHERE m.active = 1 GROUP BY m.id HAVING COALESCE(SUM(b.qty),0) <= MIN(m.min_stock)
+    ORDER BY stock`, ...(branchId ? [branchId] : []));
+  return { rows };
 }
 
 // Discount report — group=bill|branch|user|customer|product.
@@ -342,6 +398,33 @@ const REPORTS = {
     ],
     summary: d => [['Total', 'Rs. ' + round2(d.rows.reduce((a, r) => a + r.total, 0)).toFixed(2)]],
   },
+  brands: {
+    title: 'Brand-wise Stock Report', build: brandStockReport,
+    columns: [
+      { key: 'brand', label: 'Brand' }, { key: 'medicines', label: 'Medicines', align: 'right' },
+      { key: 'batches', label: 'Batches', align: 'right' }, { key: 'qty', label: 'Qty', align: 'right' },
+      { key: 'stock_value', label: 'Stock Value', align: 'right' }, { key: 'retail_value', label: 'Retail Value', align: 'right' },
+    ],
+    summary: d => [['Brands', d.rows.length], ['Stock Value (cost)', 'Rs. ' + round2(d.rows.reduce((a, r) => a + r.stock_value, 0)).toFixed(2)]],
+  },
+  generics: {
+    title: 'Generic-wise Stock Report', build: genericStockReport,
+    columns: [
+      { key: 'generic', label: 'Generic Name' }, { key: 'brands', label: 'Brands' },
+      { key: 'medicines', label: 'Medicines', align: 'right' }, { key: 'qty', label: 'Qty', align: 'right' },
+      { key: 'stock_value', label: 'Stock Value', align: 'right' },
+    ],
+    summary: d => [['Generics', d.rows.length], ['Stock Value (cost)', 'Rs. ' + round2(d.rows.reduce((a, r) => a + r.stock_value, 0)).toFixed(2)]],
+  },
+  lowstock: {
+    title: 'Low Stock Report', build: lowStockReport,
+    columns: [
+      { key: 'medicine', label: 'Medicine' }, { key: 'brand', label: 'Brand' }, { key: 'generic', label: 'Generic' },
+      { key: 'stock', label: 'In Stock', align: 'right' }, { key: 'min_stock', label: 'Min Level', align: 'right' },
+      { key: 'status', label: 'Status' },
+    ],
+    summary: d => [['Items to reorder', d.rows.length], ['Out of stock', d.rows.filter(r => r.stock <= 0).length]],
+  },
   discounts: {
     title: 'Discount Report', build: discountsReport,
     columns: req => DISCOUNT_COLUMNS[['bill', 'branch', 'user', 'customer', 'product'].includes(req.query.group) ? req.query.group : 'bill'],
@@ -364,13 +447,13 @@ router.get('/profit', requirePermission('reports.view'), wrap(async (req, res) =
   res.json(await profitReport(req));
 }));
 
-router.get('/:key(sales|stock|expiry|purchases|gst|products|staff|discounts)', requirePermission('reports.view'), wrap(async (req, res) => {
+router.get('/:key(sales|stock|expiry|purchases|gst|products|staff|discounts|brands|generics|lowstock)', requirePermission('reports.view'), wrap(async (req, res) => {
   const r = REPORTS[req.params.key];
   const data = await r.build(req);
   res.json({ title: r.title, columns: r.columns, rows: data.rows, from: data.from, to: data.to, summary: r.summary(data) });
 }));
 
-router.get('/:key(sales|stock|expiry|purchases|gst|products|staff|discounts)/export', requirePermission('reports.export'), wrap(async (req, res) => {
+router.get('/:key(sales|stock|expiry|purchases|gst|products|staff|discounts|brands|generics|lowstock)/export', requirePermission('reports.export'), wrap(async (req, res) => {
   const r = REPORTS[req.params.key];
   const data = await r.build(req);
   const branchId = scopeBranch(req);

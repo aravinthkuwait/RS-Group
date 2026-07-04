@@ -10,6 +10,7 @@ export default function MoreScreen({ navigation }) {
     can(user, 'inventory.view') && { t: '⏳ Expiry Check', nav: 'Expiry' },
     can(user, 'customers.view') && { t: '👥 Customers', nav: 'Customers' },
     can(user, 'reports.view') && { t: '📑 Reports', nav: 'Reports' },
+    can(user, 'purchases.view') && { t: '📥 Purchases', nav: 'Purchases' },
     can(user, 'delivery.view') && { t: '🛵 Deliveries', nav: 'Deliveries' },
     can(user, 'staff.manage') && { t: '🧑‍⚕️ Users & Staff', nav: 'AdminUsers' },
     can(user, 'branches.manage') && { t: '🏬 Branches', nav: 'AdminBranches' },

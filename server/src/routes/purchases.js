@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { all, get, run, insert, tx } from '../db.js';
-import { requirePermission, scopeBranch, writeBranch } from '../auth.js';
+import { requirePermission, scopeBranch, writeBranch, canAccessBranch } from '../auth.js';
 import { audit, auditDiff, notify, notifyStockUpdate, broadcast, round2, supplierBalance, today } from '../util.js';
 
 const router = Router();
@@ -90,10 +90,25 @@ router.get('/:id(\\d+)', requirePermission('purchases.view'), wrap(async (req, r
   const p = await get(`SELECT p.*, s.name AS supplier_name, b.name AS branch_name FROM purchases p
     JOIN suppliers s ON s.id = p.supplier_id JOIN branches b ON b.id = p.branch_id WHERE p.id = ?`, req.params.id);
   if (!p) return res.status(404).json({ error: 'Purchase not found' });
-  p.items = await all(`SELECT pi.*, m.name AS medicine_name, m.unit FROM purchase_items pi
+  p.items = await all(`SELECT pi.*, m.name AS medicine_name, m.unit, m.brand, m.generic_name, m.strip_count FROM purchase_items pi
     JOIN medicines m ON m.id = pi.medicine_id WHERE pi.purchase_id = ?`, p.id);
   res.json({ purchase: p });
 }));
+
+// Accept expiry as MM/YYYY (mobile) or YYYY-MM-DD — normalised to the last
+// day of the month so batch tracking always has a full date.
+function normalizeExpiry(v) {
+  const s = String(v || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // already a full date
+  let month, year;
+  let m = s.match(/^(\d{1,2})[\/\-](\d{4})$/);        // MM/YYYY or MM-YYYY
+  if (m) { month = Number(m[1]); year = Number(m[2]); }
+  else if ((m = s.match(/^(\d{4})-(\d{1,2})$/))) { year = Number(m[1]); month = Number(m[2]); } // YYYY-MM (month picker)
+  else return v;
+  month = Math.min(12, Math.max(1, month));
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+}
 
 // Purchase entry: creates batch-wise stock at the branch
 router.post('/', requirePermission('purchases.manage'), wrap(async (req, res) => {
@@ -110,14 +125,38 @@ router.post('/', requirePermission('purchases.manage'), wrap(async (req, res) =>
       const pid = await db.insert(`INSERT INTO purchases (branch_id, supplier_id, invoice_no, invoice_date, invoice_file, notes, created_by)
         VALUES (?,?,?,?,?,?,?)`, branchId, supplier_id, invoice_no, invoice_date, invoice_file, notes, req.user.id);
       for (const it of items) {
-        const med = await db.get('SELECT * FROM medicines WHERE id = ?', it.medicine_id);
+        // Resolve the medicine: by id, by exact name, or create a new one
+        // (new medicines need brand + generic name + strip count).
+        let med = it.medicine_id ? await db.get('SELECT * FROM medicines WHERE id = ?', it.medicine_id) : null;
+        if (!med && it.medicine_name) {
+          med = await db.get('SELECT * FROM medicines WHERE lower(name) = lower(?)', it.medicine_name.trim());
+          if (!med) {
+            if (!it.brand?.trim() || !it.generic_name?.trim()) {
+              throw new Error(`${it.medicine_name}: brand name and generic name are required for a new medicine`);
+            }
+            const newId = await db.insert(`INSERT INTO medicines (name, generic_name, category, brand, hsn, gst_rate, unit, min_stock, strip_count)
+              VALUES (?,?,?,?,?,?,?,?,?)`,
+              it.medicine_name.trim(), it.generic_name.trim(), it.category || 'General', it.brand.trim(),
+              '3004', it.gst_rate != null ? Number(it.gst_rate) : 12, it.unit || 'Strip',
+              it.min_stock != null ? Number(it.min_stock) : 10, Math.max(1, Number(it.strip_count) || 1));
+            med = await db.get('SELECT * FROM medicines WHERE id = ?', newId);
+          }
+        }
         if (!med) throw new Error('Medicine not found');
+        // Keep the master updated from the purchase entry
+        if (it.brand?.trim() || it.generic_name?.trim() || Number(it.strip_count) > 0) {
+          await db.run(`UPDATE medicines SET brand = COALESCE(?, brand), generic_name = COALESCE(?, generic_name),
+            strip_count = COALESCE(?, strip_count) WHERE id = ?`,
+            it.brand?.trim() || null, it.generic_name?.trim() || null,
+            Number(it.strip_count) > 0 ? Math.max(1, Number(it.strip_count)) : null, med.id);
+        }
+        const expiry = normalizeExpiry(it.expiry_date);
         const qty = Number(it.qty), freeQty = Number(it.free_qty || 0);
-        if (!qty || qty <= 0 || !it.batch_no || !it.expiry_date) throw new Error(`Batch no, expiry and quantity required for ${med.name}`);
+        if (!qty || qty <= 0 || !it.batch_no || !expiry) throw new Error(`Batch no, expiry and quantity required for ${med.name}`);
         const amount = round2(qty * Number(it.purchase_price));
         const gst = round2(amount * med.gst_rate / (100 + med.gst_rate));
         const existing = await db.get(`SELECT id FROM stock_batches WHERE medicine_id=? AND branch_id=? AND batch_no=? AND expiry_date=?`,
-          it.medicine_id, branchId, it.batch_no, it.expiry_date);
+          med.id, branchId, it.batch_no, expiry);
         let batchId;
         if (existing) {
           await db.run(`UPDATE stock_batches SET qty = qty + ?, mrp = ?, purchase_price = ?, selling_price = ?, supplier_id = ? WHERE id = ?`,
@@ -126,12 +165,12 @@ router.post('/', requirePermission('purchases.manage'), wrap(async (req, res) =>
         } else {
           batchId = await db.insert(`INSERT INTO stock_batches (medicine_id, branch_id, supplier_id, batch_no, expiry_date, mrp, purchase_price, selling_price, qty)
             VALUES (?,?,?,?,?,?,?,?,?)`,
-            it.medicine_id, branchId, supplier_id, it.batch_no, it.expiry_date, it.mrp, it.purchase_price, it.selling_price || it.mrp, qty + freeQty);
+            med.id, branchId, supplier_id, it.batch_no, expiry, it.mrp, it.purchase_price, it.selling_price || it.mrp, qty + freeQty);
         }
         await db.run(`INSERT INTO purchase_items (purchase_id, medicine_id, batch_id, batch_no, expiry_date, qty, free_qty, purchase_price, mrp, selling_price, gst_rate, amount)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-          pid, it.medicine_id, batchId, it.batch_no, it.expiry_date, qty, freeQty, it.purchase_price, it.mrp, it.selling_price || it.mrp, med.gst_rate, amount);
-        stockItems.push({ medicine_id: it.medicine_id, name: med.name, batch_no: it.batch_no, expiry_date: it.expiry_date, qty_added: qty + freeQty });
+          pid, med.id, batchId, it.batch_no, expiry, qty, freeQty, it.purchase_price, it.mrp, it.selling_price || it.mrp, med.gst_rate, amount);
+        stockItems.push({ medicine_id: med.id, name: med.name, batch_no: it.batch_no, expiry_date: expiry, qty_added: qty + freeQty });
         subtotal += amount - gst; gstAmt += gst;
       }
       const total = round2(subtotal + gstAmt);
@@ -155,6 +194,49 @@ router.post('/', requirePermission('purchases.manage'), wrap(async (req, res) =>
 }));
 
 // ---------------- Purchase returns ----------------
+// Edit purchase header (invoice details / notes; items are fixed once stock is in)
+router.put('/:id(\\d+)', requirePermission('purchases.manage'), wrap(async (req, res) => {
+  const before = await get('SELECT * FROM purchases WHERE id = ?', req.params.id);
+  if (!before) return res.status(404).json({ error: 'Purchase not found' });
+  if (!canAccessBranch(req.user, before.branch_id)) return res.status(403).json({ error: 'Purchase belongs to another branch' });
+  const { invoice_no, invoice_date, notes } = req.body || {};
+  await run(`UPDATE purchases SET invoice_no=COALESCE(?,invoice_no), invoice_date=COALESCE(?,invoice_date),
+    notes=COALESCE(?,notes) WHERE id=?`, invoice_no, invoice_date, notes, req.params.id);
+  auditDiff(req, 'purchases', Number(req.params.id), before,
+    { invoice_no, invoice_date, notes }, ['invoice_no', 'invoice_date', 'notes']);
+  res.json({ ok: true });
+}));
+
+// Delete a purchase entry: reverses the stock it added. Refused when any of
+// its batches have already been sold/moved below the added quantity.
+router.delete('/:id(\\d+)', requirePermission('purchases.manage'), wrap(async (req, res) => {
+  const p = await get('SELECT * FROM purchases WHERE id = ?', req.params.id);
+  if (!p) return res.status(404).json({ error: 'Purchase not found' });
+  if (!canAccessBranch(req.user, p.branch_id)) return res.status(403).json({ error: 'Purchase belongs to another branch' });
+  const items = await all(`SELECT pi.*, m.name AS medicine_name FROM purchase_items pi
+    JOIN medicines m ON m.id = pi.medicine_id WHERE pi.purchase_id = ?`, p.id);
+  try {
+    await tx(async db => {
+      for (const it of items) {
+        const batch = it.batch_id ? await db.get('SELECT * FROM stock_batches WHERE id = ?', it.batch_id) : null;
+        const added = it.qty + (it.free_qty || 0);
+        if (batch && batch.qty < added) {
+          throw new Error(`${it.medicine_name} (batch ${it.batch_no}): ${added - batch.qty} already sold or moved — cannot delete this purchase. Use a purchase return instead.`);
+        }
+        if (batch) await db.run('UPDATE stock_batches SET qty = qty - ? WHERE id = ?', added, batch.id);
+      }
+      await db.run('DELETE FROM supplier_payments WHERE purchase_id = ?', p.id);
+      await db.run('DELETE FROM purchase_items WHERE purchase_id = ?', p.id);
+      await db.run('DELETE FROM purchases WHERE id = ?', p.id);
+    });
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+  audit(req, 'delete', 'purchases', p.id, `${p.invoice_no} — stock reversed`);
+  broadcast('stock_changed', { branch_id: p.branch_id }, p.branch_id);
+  res.json({ ok: true });
+}));
+
 router.post('/:id(\\d+)/returns', requirePermission('purchases.manage'), wrap(async (req, res) => {
   const purchase = await get('SELECT * FROM purchases WHERE id = ?', req.params.id);
   if (!purchase) return res.status(404).json({ error: 'Purchase not found' });

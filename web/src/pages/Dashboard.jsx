@@ -37,6 +37,15 @@ export default function Dashboard() {
         <Stat accent="orange" label="Low Stock Items" value={d.low_stock_count} sub={<Link to="/alerts">View alerts →</Link>} />
       </div>
 
+      {/* Expiry & batch widgets */}
+      <div className="stats-row">
+        <Stat accent="orange" label="Expiring in 30 Days" value={d.expiring_30?.batches ?? 0} sub={`${fmt0(d.expiring_30?.value || 0)} at risk`} />
+        <Stat accent="orange" label="Expiring in 60 Days" value={d.expiring_60?.batches ?? 0} sub={`${fmt0(d.expiring_60?.value || 0)} at risk`} />
+        <Stat accent="red" label="Expiring in 90 Days" value={d.expiring_90?.batches ?? 0} sub={`${fmt0(d.expiring_90?.value || 0)} at risk`} />
+        <Stat accent="red" label="Expired Stock" value={d.expired?.batches ?? 0} sub={<Link to="/alerts">{fmt0(d.expired?.value || 0)} · view →</Link>} />
+        <Stat accent="blue" label="Batch-wise Stock" value={d.batch_summary?.batches ?? 0} sub={`${d.batch_summary?.units ?? 0} units · ${d.batch_summary?.medicines ?? 0} medicines`} />
+      </div>
+
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))' }}>
         <Card title="Sales — last 14 days">
           {trend.length ? <LineChart data={trend} series={[{ key: 'sales', name: 'Sales' }]} /> : <div className="empty">No sales yet</div>}
@@ -67,6 +76,14 @@ export default function Dashboard() {
         </Card>
         <Card title="Staff performance (this month)">
           <BarList data={d.staff_performance.map(s => ({ label: s.name, value: s.total, sub: `${s.bills} bills` }))} />
+        </Card>
+        <Card title="Brand-wise sales (30 days)">
+          {d.top_brands?.length ? <BarList data={d.top_brands.map(b => ({ label: b.name, value: b.amount, sub: `${b.qty} sold` }))} color={2} />
+            : <div className="empty">No sales yet</div>}
+        </Card>
+        <Card title="Generic-wise sales (30 days)">
+          {d.top_generics?.length ? <BarList data={d.top_generics.map(g => ({ label: g.name, value: g.amount, sub: `${g.qty} sold` }))} color={1} />
+            : <div className="empty">No sales yet</div>}
         </Card>
       </div>
     </div>
