@@ -1,0 +1,31 @@
+name: EAS Update (OTA)
+
+# Push an over-the-air update for JS / asset changes — no rebuild, no reinstall.
+# Installed APKs pick it up on next launch (same native fingerprint only).
+# Requires repo secret EXPO_TOKEN.
+on:
+  push:
+    branches: [main, claude/rs-group-medical-saas-k2eivu]
+    paths:
+      - 'mobile/**'
+  workflow_dispatch: {}
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Install dependencies
+        run: npm ci || npm install
+      - name: Publish OTA update
+        run: eas update --branch preview --message "CI ${{ github.sha }}" --non-interactive
