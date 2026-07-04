@@ -33,8 +33,9 @@ export function can(user, ...perms) {
 const BranchCtx = createContext(null);
 export const useBranch = () => useContext(BranchCtx);
 
-function Protected({ user, perm, children }) {
+function Protected({ user, perm, role, children }) {
   if (!user) return <Navigate to="/login" replace />;
+  if (role && user.role !== role) return <Navigate to="/" replace />;
   if (perm && !can(user, ...[].concat(perm))) return <Navigate to="/" replace />;
   return children;
 }
@@ -110,7 +111,7 @@ export default function App() {
                 <Route path="/reports" element={<Protected user={user} perm="reports.view"><Reports /></Protected>} />
                 <Route path="/staff" element={<Protected user={user} perm={['staff.manage', 'tasks.view', 'delivery.view', 'attendance.self']}><Staff /></Protected>} />
                 <Route path="/settings" element={<Settings />} />
-                <Route path="/usage" element={<Protected user={user} perm="settings.manage"><Usage /></Protected>} />
+                <Route path="/usage" element={<Protected user={user} role="super_admin"><Usage /></Protected>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Route>
               <Route path="*" element={<Navigate to={user ? '/' : '/login'} replace />} />

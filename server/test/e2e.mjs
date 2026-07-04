@@ -306,6 +306,9 @@ ok('usage: db size + table breakdown', usage.db_bytes > 0 && Array.isArray(usage
 ok('usage: blob + growth + recommendations', !!usage.blobs && !!usage.growth && Array.isArray(usage.recommendations) && usage.providers.length === 3);
 const usageDenied = await req('/admin/usage', 'GET', null, T);
 ok('usage: billing staff denied', usageDenied.status === 403);
+const baToken = (await req('/auth/login', 'POST', { email: 'priya@rsgroup.in', password: 'rsgroup123' })).data.token;
+const usageBA = await req('/admin/usage', 'GET', null, baToken);
+ok('usage: branch admin denied (owner-only)', usageBA.status === 403);
 const clean = await req('/admin/usage/cleanup', 'POST', { target: 'sessions' }, OT);
 ok('usage: cleanup runs', clean.status === 200 && typeof clean.data.removed === 'number');
 const cleanBad = await req('/admin/usage/cleanup', 'POST', { target: 'nope' }, OT);
