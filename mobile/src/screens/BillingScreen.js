@@ -17,11 +17,15 @@ export default function BillingScreen() {
   const activeBranch = Number(branchId) || options[0]?.id || user.branch_id;
   const [q, setQ] = useState('');
   const [results, setResults] = useState([]);
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState([]); // {batch_id, medicine_id, name, batch_no, mrp, price, gst_rate, qty, stock, category, disc}
   const [phone, setPhone] = useState('');
   const [custResults, setCustResults] = useState([]); // live customer suggestions
   const [customer, setCustomer] = useState(null); // selected profile (special discount)
-  const [payMode, setPayMode] = useState('cash');
+  const [doctor, setDoctor] = useState('');
+  const [rx, setRx] = useState(null); // prescription photo, base64 data URL
+  const [capturingRx, setCapturingRx] = useState(false);
+  const [split, setSplit] = useState(false);
+  const [pay, setPay] = useState({ mode: 'cash', cash: '', upi: '', card: '', credit: '' });
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [discOpen, setDiscOpen] = useState(false);
@@ -29,15 +33,23 @@ export default function BillingScreen() {
   const [discValue, setDiscValue] = useState('');
   const [promoId, setPromoId] = useState(null);
   const [promos, setPromos] = useState([]);
+  const [held, setHeld] = useState([]);
+  const [resumeId, setResumeId] = useState(null);
   const [approval, setApproval] = useState(null); // {message, email, password}
   const [newCust, setNewCust] = useState(null); // add-customer modal form
+  const [done, setDone] = useState(null); // completed sale, shown in the bill-done modal
   const [permission, requestPermission] = useCameraPermissions();
   const debounce = useRef(null);
   const custDebounce = useRef(null);
+  const camRef = useRef(null);
 
   const canManageCustomers = can(user, 'customers.manage');
   const canDiscount = can(user, 'billing.discount');
   const limit = user.discount_limit ?? 10;
+
+  const loadHeld = () => api('/sales/held', { params: { branch_id: activeBranch } })
+    .then(d => setHeld(d.sales)).catch(() => {});
+  useEffect(() => { if (activeBranch) loadHeld(); }, [activeBranch]);
 
   useEffect(() => {
     api('/promotions/active', { params: { branch_id: activeBranch } })
@@ -105,10 +117,14 @@ export default function BillingScreen() {
   const add = r => {
     setCart(c => {
       const ex = c.find(i => i.batch_id === r.batch_id);
-      if (ex) return c.map(i => i.batch_id === r.batch_id ? { ...i, qty: Math.min(i.qty + 1, r.qty) } : i);
+      if (ex) {
+        if (ex.qty + 1 > r.qty) { Alert.alert('Out of stock', `Only ${r.qty} in stock for ${r.name}`); return c; }
+        return c.map(i => i.batch_id === r.batch_id ? { ...i, qty: i.qty + 1 } : i);
+      }
       return [...c, {
-        batch_id: r.batch_id, medicine_id: r.id, name: r.name, price: r.selling_price,
+        batch_id: r.batch_id, medicine_id: r.id, name: r.name, price: r.selling_price, mrp: r.mrp,
         qty: 1, stock: r.qty, batch_no: r.batch_no, category: r.category, gst_rate: r.gst_rate,
+        rx: r.prescription_required, disc: '',
       }];
     });
     setQ(''); setResults([]);
@@ -122,33 +138,67 @@ export default function BillingScreen() {
       .catch(e => Alert.alert('Error', e.message));
   };
 
-  const startScan = async () => {
-    if (!permission?.granted) {
-      const r = await requestPermission();
-      if (!r.granted) return Alert.alert('Camera permission needed to scan barcodes');
-    }
-    setScanning(true);
+  const ensureCameraPermission = async () => {
+    if (permission?.granted) return true;
+    const r = await requestPermission();
+    if (!r.granted) { Alert.alert('Camera permission needed'); return false; }
+    return true;
+  };
+  const startScan = async () => { if (await ensureCameraPermission()) setScanning(true); };
+  const startRxCapture = async () => { if (await ensureCameraPermission()) setCapturingRx(true); };
+  const takeRxPhoto = async () => {
+    try {
+      const photo = await camRef.current?.takePictureAsync({ base64: true, quality: 0.4 });
+      if (photo?.base64) setRx(`data:image/jpeg;base64,${photo.base64}`);
+    } catch (e) { Alert.alert('Could not capture photo', e.message); }
+    setCapturingRx(false);
   };
 
-  // ---- Totals with discount ----
-  const gross = cart.reduce((a, i) => a + i.qty * i.price, 0);
+  const setQty = (batchId, qty) => setCart(c => c.map(i => {
+    if (i.batch_id !== batchId) return i;
+    const n = Math.max(1, Math.min(Number(qty) || 1, i.stock));
+    return { ...i, qty: n };
+  }));
+  const setLineDisc = (batchId, v) => setCart(c => c.map(i => i.batch_id === batchId ? { ...i, disc: v } : i));
+
+  // ---- Totals (mirrors web POS: item-wise discount, then bill-level, then GST) ----
+  const grossAmount = cart.reduce((a, i) => a + i.qty * i.price, 0);
+  const itemDisc = cart.reduce((a, i) => a + Math.min(Number(i.disc) || 0, i.qty * i.price), 0);
+  const subtotal = grossAmount - itemDisc;
   const selectedPromo = promos.find(p => p.id === promoId);
   let billDisc = 0;
-  if (discType === 'percent') billDisc = Math.min(gross * (Number(discValue) || 0) / 100, gross);
-  else if (discType === 'amount') billDisc = Math.min(Number(discValue) || 0, gross);
-  else if (discType === 'customer') billDisc = gross * (Number(customer?.discount_percent) || 0) / 100;
+  if (discType === 'percent') billDisc = Math.min(subtotal * (Number(discValue) || 0) / 100, subtotal);
+  else if (discType === 'amount') billDisc = Math.min(Number(discValue) || 0, subtotal);
+  else if (discType === 'customer') billDisc = Math.min(subtotal * (Number(customer?.discount_percent) || 0) / 100, subtotal);
   else if (discType === 'promo' && selectedPromo) {
     const p = selectedPromo;
-    const base = p.applies_to === 'all' ? gross
-      : cart.reduce((a, i) => a + ((p.applies_to === 'category' ? i.category === p.category : i.medicine_id === p.medicine_id) ? i.qty * i.price : 0), 0);
-    if (gross >= (p.min_bill_amount || 0) && base > 0) {
+    const base = p.applies_to === 'all' ? subtotal
+      : cart.reduce((a, i) => {
+        const lineNet = i.qty * i.price - Math.min(Number(i.disc) || 0, i.qty * i.price);
+        const match = p.applies_to === 'category' ? i.category === p.category : i.medicine_id === p.medicine_id;
+        return a + (match ? lineNet : 0);
+      }, 0);
+    if (subtotal >= (p.min_bill_amount || 0) && base > 0) {
       billDisc = p.discount_type === 'percent' ? base * p.discount_value / 100 : Math.min(p.discount_value, base);
     }
   }
-  const total = Math.round(gross - billDisc);
-  const discountPct = gross > 0 ? (billDisc / gross) * 100 : 0;
-  // Offers/customer discounts are admin-configured — only manual %/₹ counts against the user limit
-  const overLimit = ['percent', 'amount'].includes(discType) && discountPct > limit + 0.01;
+  const totalDiscount = itemDisc + billDisc;
+  const manualDiscount = itemDisc + (['percent', 'amount'].includes(discType) ? billDisc : 0);
+  const discountPct = grossAmount > 0 ? (manualDiscount / grossAmount) * 100 : 0;
+  const overLimit = manualDiscount > 0 && discountPct > limit + 0.01;
+  const gstBase = cart.reduce((a, i) => {
+    const lineNet = i.qty * i.price - Math.min(Number(i.disc) || 0, i.qty * i.price);
+    return a + (lineNet * i.gst_rate) / (100 + i.gst_rate);
+  }, 0);
+  const gst = subtotal > 0 ? gstBase * (subtotal - billDisc) / subtotal : 0;
+  const taxable = subtotal - billDisc - gst;
+  const total = Math.round(subtotal - billDisc);
+  const roundOff = total - (subtotal - billDisc);
+
+  useEffect(() => {
+    if (!split) setPay(p => ({ ...p, cash: '', upi: '', card: '', credit: '', [p.mode]: total || '' }));
+  }, [total, split]);
+  const paySum = ['cash', 'upi', 'card', 'credit'].reduce((a, k) => a + (Number(pay[k]) || 0), 0);
 
   const discLabel = discType === 'none' ? 'No discount'
     : discType === 'percent' ? `${discValue || 0}% off`
@@ -156,8 +206,16 @@ export default function BillingScreen() {
     : discType === 'customer' ? `Customer ${customer?.discount_percent || 0}%`
     : selectedPromo ? `Offer: ${selectedPromo.name}` : 'Offer';
 
-  const save = async (approvalCreds = null, walkIn = false) => {
-    if (!cart.length) return;
+  const resetForm = () => {
+    setCart([]); setPhone(''); setCustomer(null); setDoctor(''); setRx(null);
+    setDiscType('none'); setDiscValue(''); setPromoId(null); setApproval(null);
+    setPay({ mode: 'cash', cash: '', upi: '', card: '', credit: '' }); setSplit(false);
+    setResumeId(null);
+  };
+
+  const submit = async (hold = false, approvalCreds = null, walkIn = false) => {
+    if (!cart.length) return Alert.alert('Cart is empty');
+    if (!hold && Math.abs(paySum - total) > 0.01) return Alert.alert('Payment mismatch', `Payment ₹${paySum} must equal total ₹${total}`);
     const typed = phone.trim();
     // If a NAME was typed but no customer is attached, offer to save it for
     // reuse instead of losing it (a raw name can't be stored as a phone).
@@ -166,7 +224,7 @@ export default function BillingScreen() {
         `"${typed}" looks like a name. Add it as a customer so it's stored for next time, or bill as a walk-in.`,
         [
           { text: 'Add customer', onPress: openNewCustomer },
-          { text: 'Bill as walk-in', style: 'cancel', onPress: () => save(null, true) },
+          { text: 'Bill as walk-in', style: 'cancel', onPress: () => submit(hold, null, true) },
         ]);
     }
     setBusy(true);
@@ -175,28 +233,49 @@ export default function BillingScreen() {
         method: 'POST',
         body: {
           branch_id: activeBranch || undefined,
-          items: cart.map(i => ({ batch_id: i.batch_id, qty: i.qty })),
+          items: cart.map(i => ({ batch_id: i.batch_id, qty: i.qty, discount: Number(i.disc) || 0 })),
           customer_id: customer?.id || undefined,
           // Only send a phone when it really is one — never store a name as a phone
           customer_phone: customer ? undefined : (looksLikePhone(typed) ? typed : undefined),
-          discount: { type: billDisc > 0 ? discType : 'none', value: Number(discValue) || 0, promo_id: promoId },
-          payment: { cash: 0, upi: 0, card: 0, credit: 0, [payMode]: total },
+          discount: { type: totalDiscount > 0 || discType !== 'none' ? discType : 'none', value: Number(discValue) || 0, promo_id: promoId },
+          doctor_name: doctor,
+          payment: { cash: Number(pay.cash) || 0, upi: Number(pay.upi) || 0, card: Number(pay.card) || 0, credit: Number(pay.credit) || 0 },
+          hold, prescription_file: rx || undefined,
+          resume_sale_id: resumeId || undefined,
           approval: approvalCreds || undefined,
         },
       });
-      const saved = (d.sale?.discount || 0) + (d.sale?.item_discount || 0);
-      Alert.alert('Bill saved ✓', `${d.invoice_no}\nTotal ${fmt(d.total)}${saved > 0 ? `\nCustomer saved ${fmt(saved)} 🎉` : ''}`, [
-        { text: '🖨 Print Receipt', onPress: () => Linking.openURL(`${BASE_URL}/api/sales/${d.id}/pdf?token=${getAuthToken()}`) },
-        { text: 'OK', style: 'cancel' },
-      ]);
-      setCart([]); setPhone(''); setCustomer(null);
-      setDiscType('none'); setDiscValue(''); setPromoId(null); setApproval(null);
+      if (hold) {
+        Alert.alert('Bill held', `${d.invoice_no} — resume it anytime from the held bills list.`);
+      } else {
+        setDone(d.sale);
+      }
+      resetForm();
+      loadHeld();
     } catch (e) {
       if (e.approval_required) setApproval({ message: e.message, email: '', password: '' });
       else Alert.alert('Could not save bill', e.message);
     }
     setBusy(false);
   };
+
+  const resumeHeld = (s) => {
+    setCart(s.items.map(i => ({
+      batch_id: i.batch_id, medicine_id: i.medicine_id, name: i.medicine_name, batch_no: i.batch_no,
+      mrp: i.mrp, price: i.price, gst_rate: i.gst_rate, qty: i.qty, stock: 9999, disc: i.discount || '',
+    })));
+    setPhone(s.customer_phone || ''); setDoctor(s.doctor_name || '');
+    if (s.discount > 0) { setDiscType('amount'); setDiscValue(s.discount); }
+    setResumeId(s.id);
+    Alert.alert('Resumed', `Held bill ${s.invoice_no} loaded into the cart.`);
+  };
+
+  const totalRow = (label, value, big) => (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginVertical: big ? 0 : 2 }}>
+      <Text style={{ color: '#fff', fontWeight: big ? '800' : '600', fontSize: big ? 15 : 13, opacity: big ? 1 : 0.9 }}>{label}</Text>
+      <Text style={{ color: '#fff', fontWeight: big ? '800' : '600', fontSize: big ? 22 : 13 }}>{value}</Text>
+    </View>
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
@@ -215,12 +294,30 @@ export default function BillingScreen() {
           <ScrollView>
             {results.map(r => (
               <TouchableOpacity key={r.batch_id} onPress={() => add(r)} style={{ padding: 12, borderBottomWidth: 1, borderColor: colors.line }}>
-                <Text style={{ fontWeight: '700' }}>{r.name} <Text style={{ color: colors.green }}>{fmt(r.selling_price)}</Text></Text>
+                <Text style={{ fontWeight: '700' }}>
+                  {r.name} <Text style={{ color: colors.green }}>{fmt(r.selling_price)}</Text>
+                  {!!r.prescription_required && <Text style={{ color: colors.orange, fontSize: 11 }}>  Rx</Text>}
+                </Text>
                 <Text style={{ color: colors.ink3, fontSize: 12 }}>Batch {r.batch_no} · {r.qty} in stock · Rack {r.rack_location}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
+      )}
+
+      {held.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8, maxHeight: 40 }}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {held.map(s => (
+              <TouchableOpacity key={s.id} onPress={() => resumeHeld(s)}
+                style={{ backgroundColor: colors.orangeLight, borderRadius: 20, paddingVertical: 7, paddingHorizontal: 12 }}>
+                <Text style={{ color: colors.orange, fontWeight: '700', fontSize: 12 }}>
+                  ⏸ {s.invoice_no} · {fmt(s.total)}{s.customer_name ? ` · ${s.customer_name}` : ''}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
       )}
 
       <FlatList
@@ -229,21 +326,38 @@ export default function BillingScreen() {
         keyExtractor={i => String(i.batch_id)}
         ListEmptyComponent={<Text style={{ textAlign: 'center', color: colors.ink3, marginTop: 30 }}>Cart is empty — search or scan to add items</Text>}
         renderItem={({ item }) => (
-          <View style={[{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, flexDirection: 'row', alignItems: 'center' }, shadow]}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontWeight: '700' }}>{item.name}</Text>
-              <Text style={{ color: colors.ink3, fontSize: 12 }}>{item.batch_no} · {fmt(item.price)}</Text>
+          <View style={[{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8 }, shadow]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontWeight: '700' }}>{item.name}{!!item.rx && <Text style={{ color: colors.orange, fontSize: 11 }}>  Rx</Text>}</Text>
+                <Text style={{ color: colors.ink3, fontSize: 12 }}>{item.batch_no} · MRP {fmt(item.mrp)} · {fmt(item.price)}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setCart(c => c.map(i => i.batch_id === item.batch_id ? { ...i, qty: Math.max(1, i.qty - 1) } : i))}>
+                <Text style={{ fontSize: 20, paddingHorizontal: 10 }}>−</Text>
+              </TouchableOpacity>
+              <TextInput keyboardType="numeric" value={String(item.qty)}
+                onChangeText={v => setQty(item.batch_id, v)}
+                style={{ minWidth: 30, textAlign: 'center', fontWeight: '700', borderWidth: 1, borderColor: colors.line, borderRadius: 6, paddingVertical: 2 }} />
+              <TouchableOpacity onPress={() => setCart(c => c.map(i => i.batch_id === item.batch_id ? { ...i, qty: Math.min(i.stock, i.qty + 1) } : i))}>
+                <Text style={{ fontSize: 20, paddingHorizontal: 10 }}>＋</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setCart(c => c.filter(i => i.batch_id !== item.batch_id))}>
+                <Text style={{ color: colors.red, paddingLeft: 6 }}>✕</Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity onPress={() => setCart(c => c.map(i => i.batch_id === item.batch_id ? { ...i, qty: Math.max(1, i.qty - 1) } : i))}>
-              <Text style={{ fontSize: 20, paddingHorizontal: 10 }}>−</Text>
-            </TouchableOpacity>
-            <Text style={{ fontWeight: '700', minWidth: 24, textAlign: 'center' }}>{item.qty}</Text>
-            <TouchableOpacity onPress={() => setCart(c => c.map(i => i.batch_id === item.batch_id ? { ...i, qty: Math.min(i.stock, i.qty + 1) } : i))}>
-              <Text style={{ fontSize: 20, paddingHorizontal: 10 }}>＋</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setCart(c => c.filter(i => i.batch_id !== item.batch_id))}>
-              <Text style={{ color: colors.red, paddingLeft: 6 }}>✕</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+              {canDiscount ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={{ color: colors.ink3, fontSize: 12, marginRight: 6 }}>Disc ₹</Text>
+                  <TextInput keyboardType="numeric" placeholder="0" value={String(item.disc || '')}
+                    onChangeText={v => setLineDisc(item.batch_id, v)}
+                    style={{ width: 56, textAlign: 'right', borderWidth: 1, borderColor: colors.line, borderRadius: 6, paddingVertical: 2, paddingHorizontal: 6, fontSize: 12 }} />
+                </View>
+              ) : <View />}
+              <Text style={{ fontWeight: '700' }}>
+                {fmt(item.qty * item.price - Math.min(Number(item.disc) || 0, item.qty * item.price))}
+              </Text>
+            </View>
           </View>
         )}
       />
@@ -271,7 +385,7 @@ export default function BillingScreen() {
         {customer ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
             <Text style={{ color: colors.green, fontSize: 12, flex: 1 }}>
-              ✓ {customer.name}{Number(customer.discount_percent) > 0 ? ` · special discount ${customer.discount_percent}%` : ''}
+              ✓ {customer.name}{Number(customer.discount_percent) > 0 ? ` · special discount ${customer.discount_percent}%` : ''} · {Math.round(customer.loyalty_points || 0)} pts
             </Text>
             <TouchableOpacity onPress={clearCustomer}><Text style={{ color: colors.red, fontSize: 12 }}>✕ change</Text></TouchableOpacity>
           </View>
@@ -280,43 +394,112 @@ export default function BillingScreen() {
             <Text style={{ color: colors.brand, fontWeight: '700', fontSize: 13 }}>＋ Add new customer</Text>
           </TouchableOpacity>
         )}
+
+        <TextInput style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 8, padding: 10, marginBottom: 6 }}
+          placeholder="Doctor name (optional)" value={doctor} onChangeText={setDoctor} />
+
+        {rx ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+            <Text style={{ color: colors.green, fontSize: 12, flex: 1 }}>📎 Prescription attached ✓</Text>
+            <TouchableOpacity onPress={() => setRx(null)}><Text style={{ color: colors.red, fontSize: 12 }}>remove</Text></TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity onPress={startRxCapture} style={{ marginBottom: 8 }}>
+            <Text style={{ color: colors.brand, fontWeight: '700', fontSize: 13 }}>📎 Attach prescription photo</Text>
+          </TouchableOpacity>
+        )}
+
         {canDiscount && (
           <TouchableOpacity onPress={() => setDiscOpen(true)}
             style={{ borderWidth: 1, borderColor: billDisc > 0 ? colors.green : colors.line, borderRadius: 8, padding: 10, marginBottom: 8, backgroundColor: billDisc > 0 ? colors.greenLight : '#fff' }}>
             <Text style={{ fontWeight: '700', color: billDisc > 0 ? colors.green : colors.ink2 }}>
-              💸 {discLabel}{billDisc > 0 ? ` · saves ${fmt(billDisc)}` : ' — tap to add discount'}
+              💸 {discLabel}{billDisc > 0 ? ` · saves ${fmt(billDisc)}` : ' — tap to add bill discount'}
             </Text>
           </TouchableOpacity>
         )}
-        {billDisc > 0 && (
-          <View style={{ marginBottom: 6 }}>
-            <Text style={{ color: colors.ink3, fontSize: 12 }}>Gross {fmt(gross)} − Discount {fmt(billDisc)} ({discountPct.toFixed(1)}%)</Text>
-            {overLimit && (
-              <Text style={{ color: colors.orange, fontSize: 12, fontWeight: '700' }}>Above your {limit}% limit — manager approval will be asked</Text>
-            )}
-          </View>
+        {itemDisc > 0 && (
+          <Text style={{ color: colors.ink3, fontSize: 12, marginBottom: 4 }}>Item-wise discounts: {fmt(itemDisc)}</Text>
         )}
-        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
-          {['cash', 'upi', 'card'].map(m => (
-            <TouchableOpacity key={m} onPress={() => setPayMode(m)}
-              style={{ flex: 1, padding: 8, borderRadius: 8, backgroundColor: payMode === m ? colors.brand : colors.brandLight }}>
-              <Text style={{ textAlign: 'center', color: payMode === m ? '#fff' : colors.brand, fontWeight: '700' }}>{m.toUpperCase()}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <TouchableOpacity onPress={() => save()} disabled={busy || !cart.length}
-          style={{ backgroundColor: colors.green, borderRadius: 10, padding: 14, opacity: cart.length ? 1 : 0.5 }}>
-          <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '800', fontSize: 16 }}>
-            💾 Save Bill — {fmt(total)}
+        {(billDisc > 0 || itemDisc > 0) && overLimit && (
+          <Text style={{ color: colors.orange, fontSize: 12, fontWeight: '700', marginBottom: 6 }}>
+            {discountPct.toFixed(1)}% exceeds your {limit}% limit — manager approval will be asked
           </Text>
-        </TouchableOpacity>
+        )}
+
+        {/* Totals breakdown, mirrors the web POS gradient total box */}
+        <View style={{ backgroundColor: colors.brandDark, borderRadius: 10, padding: 14, marginBottom: 10 }}>
+          {totalRow('Gross Amount', fmt(grossAmount))}
+          {itemDisc > 0 && totalRow('Item Discounts', `− ${fmt(itemDisc)}`)}
+          {billDisc > 0 && totalRow(
+            discType === 'promo' && selectedPromo ? `Offer: ${selectedPromo.name}`
+              : discType === 'customer' ? `Customer Discount (${customer?.discount_percent}%)` : 'Discount',
+            `− ${fmt(billDisc)}`)}
+          {totalRow('Taxable Amount', fmt(taxable))}
+          {totalRow('GST (incl.)', fmt(gst))}
+          {totalRow('Round off', roundOff.toFixed(2))}
+          <View style={{ borderTopWidth: 1, borderColor: 'rgba(255,255,255,.3)', marginVertical: 8 }} />
+          {totalRow('NET PAYABLE', fmt(total), true)}
+          {totalDiscount > 0 && (
+            <Text style={{ color: '#ffd9a8', textAlign: 'center', marginTop: 6, fontSize: 12 }}>
+              🎉 Customer saves {fmt(totalDiscount)} ({(grossAmount > 0 ? totalDiscount / grossAmount * 100 : 0).toFixed(1)}%)
+            </Text>
+          )}
+        </View>
+
+        {!split ? (
+          <>
+            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 6 }}>
+              {['cash', 'upi', 'card', 'credit'].map(m => (
+                <TouchableOpacity key={m} onPress={() => setPay({ mode: m, cash: '', upi: '', card: '', credit: '', [m]: total || '' })}
+                  style={{ flex: 1, padding: 8, borderRadius: 8, backgroundColor: pay.mode === m ? colors.brand : colors.brandLight }}>
+                  <Text style={{ textAlign: 'center', color: pay.mode === m ? '#fff' : colors.brand, fontWeight: '700' }}>{m.toUpperCase()}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {pay.mode === 'credit' && !phone && (
+              <Text style={{ color: colors.red, fontSize: 12, marginBottom: 6 }}>Credit sale needs a customer mobile number</Text>
+            )}
+            <TouchableOpacity onPress={() => setSplit(true)} style={{ marginBottom: 10 }}>
+              <Text style={{ color: colors.brand, fontSize: 12, fontWeight: '700' }}>Split payment across methods →</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
+              {['cash', 'upi', 'card', 'credit'].map(m => (
+                <View key={m} style={{ width: '48%' }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.ink2, marginBottom: 2 }}>{m.toUpperCase()}</Text>
+                  <TextInput keyboardType="numeric" value={String(pay[m])} onChangeText={v => setPay(p => ({ ...p, [m]: v }))}
+                    style={{ backgroundColor: '#fff', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: colors.line }} />
+                </View>
+              ))}
+            </View>
+            <Text style={{ color: Math.abs(paySum - total) > 0.01 ? colors.red : colors.green, fontSize: 12, fontWeight: '700', marginBottom: 6 }}>
+              Entered {fmt(paySum)} of {fmt(total)}
+            </Text>
+            <TouchableOpacity onPress={() => setSplit(false)} style={{ marginBottom: 10 }}>
+              <Text style={{ color: colors.brand, fontSize: 12, fontWeight: '700' }}>← Single payment method</Text>
+            </TouchableOpacity>
+          </>
+        )}
+
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity onPress={() => submit(false)} disabled={busy || !cart.length}
+            style={{ flex: 1, backgroundColor: colors.green, borderRadius: 10, padding: 14, opacity: cart.length ? 1 : 0.5 }}>
+            <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '800', fontSize: 15 }}>💾 Save & Print — {fmt(total)}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => submit(true)} disabled={busy || !cart.length}
+            style={{ backgroundColor: colors.orange, borderRadius: 10, padding: 14, paddingHorizontal: 18, opacity: cart.length ? 1 : 0.5 }}>
+            <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '800' }}>⏸ Hold</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Discount picker */}
       <Modal visible={discOpen} animationType="slide" transparent>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,.4)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: colors.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 16, maxHeight: '80%' }}>
-            <Text style={{ fontWeight: '800', fontSize: 16, marginBottom: 10 }}>💸 Discount (your limit {limit}%)</Text>
+            <Text style={{ fontWeight: '800', fontSize: 16, marginBottom: 10 }}>💸 Bill discount (your limit {limit}%)</Text>
             <ScrollView>
               <Chips value={discType} onChange={t => { setDiscType(t); if (t === 'none') { setDiscValue(''); setPromoId(null); } }}
                 options={[
@@ -337,8 +520,11 @@ export default function BillingScreen() {
                     label: `${p.name} (${p.discount_type === 'percent' ? p.discount_value + '%' : '₹' + p.discount_value}${p.min_bill_amount > 0 ? `, min ₹${p.min_bill_amount}` : ''})`,
                   }))} />
               )}
+              {discType === 'promo' && selectedPromo && subtotal < (selectedPromo.min_bill_amount || 0) && (
+                <Text style={{ color: colors.red, fontSize: 12, marginBottom: 8 }}>Bill must be at least ₹{selectedPromo.min_bill_amount} for this offer</Text>
+              )}
               <Text style={{ color: colors.ink2, marginBottom: 10 }}>
-                Gross {fmt(gross)} − {fmt(billDisc)} = <Text style={{ fontWeight: '800' }}>{fmt(total)}</Text>
+                Subtotal {fmt(subtotal)} − {fmt(billDisc)} = <Text style={{ fontWeight: '800' }}>{fmt(total)}</Text>
               </Text>
               <Btn title="Apply Discount" color={colors.green} onPress={() => setDiscOpen(false)} />
             </ScrollView>
@@ -377,12 +563,13 @@ export default function BillingScreen() {
             <Field label="Manager password" secureTextEntry
               value={approval?.password || ''} onChangeText={v => setApproval(a => ({ ...a, password: v }))} />
             <Btn title={busy ? 'Saving…' : '✓ Approve & Save Bill'} color={colors.green} disabled={busy || !approval?.email || !approval?.password}
-              onPress={() => save({ email: approval.email, password: approval.password })} />
+              onPress={() => submit(false, { email: approval.email, password: approval.password })} />
             <Btn title="Cancel" color={colors.ink3} onPress={() => setApproval(null)} />
           </View>
         </View>
       </Modal>
 
+      {/* Barcode scanner */}
       <Modal visible={scanning} animationType="slide">
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <CameraView
@@ -395,6 +582,74 @@ export default function BillingScreen() {
           </TouchableOpacity>
         </View>
       </Modal>
+
+      {/* Prescription photo capture */}
+      <Modal visible={capturingRx} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <CameraView ref={camRef} style={{ flex: 1 }} />
+          <View style={{ flexDirection: 'row' }}>
+            <TouchableOpacity onPress={() => setCapturingRx(false)} style={{ flex: 1, backgroundColor: colors.red, padding: 16 }}>
+              <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={takeRxPhoto} style={{ flex: 1, backgroundColor: colors.green, padding: 16 }}>
+              <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>📸 Capture Prescription</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Bill saved — items summary, WhatsApp share, print/PDF */}
+      <BillDoneModal sale={done} onClose={() => setDone(null)} />
     </View>
+  );
+}
+
+function BillDoneModal({ sale, onClose }) {
+  if (!sale) return null;
+  const saved = (sale.discount || 0) + (sale.item_discount || 0);
+  const pdfUrl = `${BASE_URL}/api/sales/${sale.id}/pdf?token=${getAuthToken()}`;
+  const wa = async () => {
+    try {
+      const d = await api(`/sales/${sale.id}/whatsapp`);
+      Linking.openURL(d.url);
+    } catch (e) { Alert.alert('Could not share', e.message); }
+  };
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,.5)', justifyContent: 'center', padding: 16 }}>
+        <View style={[{ backgroundColor: '#fff', borderRadius: 14, padding: 18, maxHeight: '85%' }, shadow]}>
+          <Text style={{ textAlign: 'center', fontSize: 36 }}>✅</Text>
+          <Text style={{ textAlign: 'center', fontWeight: '800', fontSize: 12, color: colors.ink3, marginTop: 4 }}>{sale.invoice_no}</Text>
+          <Text style={{ textAlign: 'center', fontWeight: '800', fontSize: 26, marginBottom: 6 }}>{fmt(sale.total)}</Text>
+          {saved > 0 && (
+            <Text style={{ textAlign: 'center', color: colors.orange, fontWeight: '700', marginBottom: 6 }}>
+              🎉 You saved {fmt(saved)} on this bill!
+              {sale.discount_approved_by_name ? ` (approved by ${sale.discount_approved_by_name})` : ''}
+            </Text>
+          )}
+          <Text style={{ textAlign: 'center', color: colors.ink3, marginBottom: 10 }}>
+            {sale.customer_name ? `${sale.customer_name} (${sale.customer_phone})` : 'Walk-in customer'}
+          </Text>
+          <ScrollView style={{ maxHeight: 200, borderTopWidth: 1, borderColor: colors.line }}>
+            {(sale.items || []).map(i => (
+              <View key={i.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderColor: colors.line }}>
+                <Text style={{ flex: 1 }}>{i.medicine_name}</Text>
+                <Text style={{ width: 40, textAlign: 'center', color: colors.ink3 }}>x{i.qty}</Text>
+                <Text style={{ fontWeight: '700' }}>{fmt(i.total)}</Text>
+              </View>
+            ))}
+          </ScrollView>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
+            <TouchableOpacity onPress={wa} style={{ flex: 1, backgroundColor: colors.orange, borderRadius: 10, padding: 12 }}>
+              <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>📱 WhatsApp</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => Linking.openURL(pdfUrl)} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: 10, padding: 12 }}>
+              <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>🖨 Print / PDF</Text>
+            </TouchableOpacity>
+          </View>
+          <Btn title="New Bill" color={colors.ink3} onPress={onClose} />
+        </View>
+      </View>
+    </Modal>
   );
 }
