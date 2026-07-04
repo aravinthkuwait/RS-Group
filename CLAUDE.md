@@ -36,7 +36,9 @@ the work matches, the same way caveman/ponytail/headroom apply without asking.
 Note: caveman, memory and ponytail are true prompt-skills (fully active).
 headroom, graphify and ruflo are behavioral ports installed here — their full
 upstream engines (compression proxy / graph MCP / ruflo plugins+MCP) are not
-installed in this environment.
+installed in this environment. The repo's `.mcp.json` wires the **ruflo MCP
+server** (approval-gated, auto-offered in interactive Claude Code). Exact
+one-command setup for the other engines is in `docs/SKILLS-SETUP.md`.
 
 ## Project facts
 
