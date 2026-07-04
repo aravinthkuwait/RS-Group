@@ -239,6 +239,7 @@ router.post('/factory-reset', requirePermission('settings.manage'), wrap(async (
 // Surfaces what actually drives Supabase/Railway cost: DB size by table, the
 // big base64 file blobs, and the ever-growing log tables — with cleanup.
 router.get('/usage', requirePermission('settings.manage'), wrap(async (req, res) => {
+  if (req.user.role !== 'super_admin') return res.status(403).json({ error: 'Usage & cost is visible to the owner (admin) only' });
   const dbSize = await get(`SELECT pg_database_size(current_database()) AS bytes`);
 
   // Size + estimated rows per table (biggest first)

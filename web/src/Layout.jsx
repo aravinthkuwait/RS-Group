@@ -23,7 +23,7 @@ const NAV = [
   { to: '/reports', icon: '📑', label: 'Reports', perm: ['reports.view'] },
   { section: 'Team' },
   { to: '/staff', icon: '🧑‍⚕️', label: 'Staff & Tasks', perm: ['staff.manage', 'tasks.view', 'delivery.view', 'attendance.self'] },
-  { to: '/usage', icon: '💰', label: 'Usage & Cost', perm: ['settings.manage'] },
+  { to: '/usage', icon: '💰', label: 'Usage & Cost', perm: [], role: 'super_admin' },
   { to: '/settings', icon: '⚙️', label: 'Settings', perm: [] },
 ];
 
@@ -117,6 +117,7 @@ export default function Layout() {
               if (!next.some(n => !n.section && (n.perm.length === 0 || can(user, ...n.perm)))) return null;
               return <div className="section" key={item.section}>{item.section}</div>;
             }
+            if (item.role && user.role !== item.role) return null;
             if (item.perm.length > 0 && !can(user, ...item.perm)) return null;
             return (
               <NavLink key={item.to} to={item.to} end={item.to === '/'}>
