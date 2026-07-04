@@ -1,10 +1,62 @@
 import React, { useCallback, useState } from 'react';
-import { ScrollView, View, Text, RefreshControl, TouchableOpacity } from 'react-native';
+import { ScrollView, View, Text, RefreshControl, TouchableOpacity, Modal } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { api, fmt } from '../api';
 import { useAuth, useBranch, can } from '../../App';
 import { colors, shadow } from '../theme';
 import { BranchBar } from '../ui';
+import { useConnectivity, humanDuration } from '../useConnectivity';
+
+const fmtTime = ts => new Date(ts).toLocaleString('en-IN', { hour12: true });
+
+function ConnectionCard() {
+  const { online, since, history } = useConnectivity();
+  const [log, setLog] = useState(false);
+  const up = online === true;
+  const pending = online === null;
+  const color = pending ? colors.orange : up ? colors.green : colors.red;
+  return (
+    <View style={[{ backgroundColor: '#fff', borderRadius: 12, padding: 14 }, shadow]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: color }} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontWeight: '800' }}>
+            {pending ? 'Checking connection…' : up ? '🟢 Online — server connected' : '🔴 Offline — no server'}
+          </Text>
+          {!pending && (
+            <Text style={{ color: colors.ink3, fontSize: 12 }}>
+              {up ? 'Online' : 'Offline'} for {humanDuration(Date.now() - since)} · since {fmtTime(since)}
+            </Text>
+          )}
+        </View>
+        <TouchableOpacity onPress={() => setLog(true)}>
+          <Text style={{ color: colors.brand, fontWeight: '700', fontSize: 12 }}>History ({history.length})</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Modal visible={log} animationType="slide" onRequestClose={() => setLog(false)}>
+        <View style={{ flex: 1, backgroundColor: colors.surface, padding: 16, paddingTop: 40 }}>
+          <Text style={{ fontSize: 18, fontWeight: '800', marginBottom: 12 }}>Connection history</Text>
+          <ScrollView>
+            {history.length === 0 && <Text style={{ color: colors.ink3 }}>No status changes recorded yet.</Text>}
+            {history.map((h, i) => (
+              <View key={i} style={[{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 4, borderLeftColor: h.status === 'online' ? colors.green : colors.red }, shadow]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ fontWeight: '700', color: h.status === 'online' ? colors.green : colors.red }}>{h.status.toUpperCase()}</Text>
+                  <Text style={{ fontWeight: '700' }}>{humanDuration((h.end || Date.now()) - h.start)}</Text>
+                </View>
+                <Text style={{ color: colors.ink3, fontSize: 12 }}>{fmtTime(h.start)} → {h.end ? fmtTime(h.end) : 'now'}</Text>
+              </View>
+            ))}
+          </ScrollView>
+          <TouchableOpacity onPress={() => setLog(false)} style={{ backgroundColor: colors.brand, borderRadius: 10, padding: 14, marginTop: 8 }}>
+            <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '800' }}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    </View>
+  );
+}
 
 function StatCard({ label, value, sub, accent }) {
   return (
@@ -50,6 +102,8 @@ export default function HomeScreen({ navigation }) {
           )}
         </TouchableOpacity>
       </View>
+
+      <ConnectionCard />
 
       <BranchBar />
 

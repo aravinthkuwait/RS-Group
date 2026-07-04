@@ -3,6 +3,7 @@ import { api, fmt0 } from '../api.js';
 import { useAuth, useBranch, can } from '../App.jsx';
 import { Card, Stat } from '../ui.jsx';
 import { LineChart, Bars, BarList, Donut } from '../charts.jsx';
+import { ConnectionStatus } from '../ConnectionStatus.jsx';
 import { Link } from 'react-router-dom';
 
 export default function Dashboard() {
@@ -28,6 +29,7 @@ export default function Dashboard() {
 
   return (
     <div className="grid" style={{ gap: 18 }}>
+      <ConnectionStatus />
       <div className="stats-row">
         <Stat accent="blue" label="Today's Sales" value={fmt0(d.today.total)} sub={`${d.today.bills} bills`} />
         <Stat accent="green" label="This Month" value={fmt0(d.month.total)} sub={`${d.month.bills} bills`} />

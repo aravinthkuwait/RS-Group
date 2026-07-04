@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, useBranch, can } from './App.jsx';
 import { api } from './api.js';
 import { useToast } from './ui.jsx';
+import { ConnectionDot } from './ConnectionStatus.jsx';
 
 const NAV = [
   { section: 'Overview' },
@@ -142,6 +143,7 @@ export default function Layout() {
           ) : (
             <span className="badge blue">{branchName || 'Head Office'}</span>
           )}
+          <ConnectionDot />
           <button className="bell" onClick={openNotifs}>
             🔔{unread > 0 && <span className="dot">{unread}</span>}
           </button>
