@@ -119,6 +119,54 @@ ok('purchase entry', !!purchase.id, `total ₹${purchase.total}`);
 const ledger = (await req('/purchases/suppliers/1/ledger', 'GET', null, OT)).data;
 ok('supplier ledger has entries', ledger.ledger.length > 0, `balance ₹${ledger.balance}`);
 
+console.log('— Purchase v4: new medicine, MM/YYYY, strip count, brand/generic —');
+const brandsBefore = (await req('/inventory/brands', 'GET', null, OT)).data.brands.length;
+const genUniq = 'E2EGen' + purchase.id;
+const p4 = (await req('/purchases', 'POST', {
+  branch_id: 1, supplier_id: 2, invoice_no: 'V4-INV-' + purchase.id, invoice_date: new Date().toISOString().slice(0,10),
+  items: [{
+    medicine_name: 'E2E New Med ' + purchase.id, brand: 'E2E Brand ' + purchase.id, generic_name: genUniq, strip_count: 15,
+    batch_no: 'V4BATCH', expiry_date: '08/2029', qty: 20, purchase_price: 10, mrp: 18, selling_price: 16,
+  }],
+}, OT)).data;
+ok('purchase creates a new medicine', !!p4.id, p4.error || '');
+const brandsAfter = (await req('/inventory/brands', 'GET', null, OT)).data.brands.length;
+ok('new brand added to master', brandsAfter > brandsBefore);
+const gens = (await req(`/inventory/generics?q=${genUniq}`, 'GET', null, OT)).data.generics;
+ok('new generic added to master', gens.some(g => g.name === genUniq));
+const v4stock = (await req('/inventory/stock?q=V4BATCH&branch_id=1', 'GET', null, OT)).data.stock;
+ok('MM/YYYY expiry normalised to month end', v4stock[0]?.expiry_date === '2029-08-31', v4stock[0]?.expiry_date);
+ok('strip count stored on new medicine', v4stock[0]?.strip_count === 15, `strip ${v4stock[0]?.strip_count}`);
+// Search stock by brand and generic
+ok('stock search by brand', (await req(`/inventory/stock?q=E2E Brand ${purchase.id}`, 'GET', null, OT)).data.stock.length > 0);
+ok('stock search by generic', (await req(`/inventory/stock?q=${genUniq}`, 'GET', null, OT)).data.stock.length > 0);
+// Edit + delete purchase (deletes reverse stock)
+const p4edit = await req(`/purchases/${p4.id}`, 'PUT', { notes: 'edited by e2e' }, OT);
+ok('purchase header editable', p4edit.status === 200);
+const p4del = await req(`/purchases/${p4.id}`, 'DELETE', null, OT);
+ok('purchase delete reverses stock', p4del.status === 200);
+ok('deleted purchase stock removed', (await req('/inventory/stock?q=V4BATCH&branch_id=1', 'GET', null, OT)).data.stock.length === 0);
+// Delete refused when stock already sold
+const soldMed = (await req('/inventory/medicines/pos-search?q=dolo&branch_id=1', 'GET', null, OT)).data.results[0];
+const guardPur = (await req('/purchases', 'POST', {
+  branch_id: 1, supplier_id: 1, invoice_no: 'GUARD-' + purchase.id, invoice_date: new Date().toISOString().slice(0,10),
+  items: [{ medicine_id: soldMed.id, batch_no: 'GUARDB', expiry_date: '10/2029', qty: 5, purchase_price: 20, mrp: 33, selling_price: 30 }],
+}, OT)).data;
+const gStock = (await req('/inventory/stock?q=GUARDB&branch_id=1', 'GET', null, OT)).data.stock[0];
+await req('/sales', 'POST', { branch_id: 1, items: [{ batch_id: gStock.id, qty: 2 }], payment: { cash: 60, upi: 0, card: 0, credit: 0 } }, OT);
+const guardDel = await req(`/purchases/${guardPur.id}`, 'DELETE', null, OT);
+ok('delete refused after stock sold', guardDel.status === 400);
+
+console.log('— Purchase v4: reports & dashboard widgets —');
+for (const k of ['brands', 'generics', 'lowstock']) {
+  const r = (await req(`/reports/${k}`, 'GET', null, OT)).data;
+  ok(`report: ${k}`, Array.isArray(r.rows), `${r.rows?.length} rows`);
+}
+const dash = (await req('/reports/dashboard', 'GET', null, OT)).data;
+ok('dashboard expiry bands', dash.expiring_30 && dash.expiring_60 && dash.expiring_90);
+ok('dashboard batch summary', typeof dash.batch_summary?.batches === 'number');
+ok('dashboard brand & generic sales', Array.isArray(dash.top_brands) && Array.isArray(dash.top_generics));
+
 console.log('— Stock transfer —');
 const stock = (await req('/inventory/stock?q=TESTB1', 'GET', null, OT)).data.stock;
 const tr = (await req('/inventory/transfers', 'POST', {

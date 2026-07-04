@@ -62,6 +62,7 @@ function Medicines() {
           { key: 'category', label: 'Category' },
           { key: 'brand', label: 'Brand' },
           { key: 'gst_rate', label: 'GST%', num: true },
+          { key: 'strip_count', label: 'Strip', num: true, render: r => r.strip_count || 1 },
           { key: 'rack_location', label: 'Rack' },
           { key: 'min_stock', label: 'Min', num: true },
           {
@@ -90,12 +91,12 @@ function MedicineModal({ med, cats, onClose, onSaved }) {
     name: med.name || '', generic_name: med.generic_name || '', category: med.category || 'Tablet',
     brand: med.brand || '', barcode: med.barcode || '', hsn: med.hsn || '3004', gst_rate: med.gst_rate ?? 12,
     unit: med.unit || 'Strip', rack_location: med.rack_location || '', min_stock: med.min_stock ?? 10,
-    prescription_required: !!med.prescription_required,
+    strip_count: med.strip_count ?? 1, prescription_required: !!med.prescription_required,
   });
   const set = k => e => setF(s => ({ ...s, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
   const save = async () => {
     try {
-      const body = { ...f, gst_rate: Number(f.gst_rate), min_stock: Number(f.min_stock), prescription_required: f.prescription_required ? 1 : 0 };
+      const body = { ...f, gst_rate: Number(f.gst_rate), min_stock: Number(f.min_stock), strip_count: Math.max(1, Number(f.strip_count) || 1), prescription_required: f.prescription_required ? 1 : 0 };
       if (med.id) await api(`/inventory/medicines/${med.id}`, { method: 'PUT', body });
       else await api('/inventory/medicines', { method: 'POST', body });
       toast('Medicine saved', 'green'); onSaved();
@@ -118,6 +119,7 @@ function MedicineModal({ med, cats, onClose, onSaved }) {
         <Field label="HSN" value={f.hsn} onChange={set('hsn')} />
         <Field label="GST %" type="number" value={f.gst_rate} onChange={set('gst_rate')} />
         <Field label="Unit" value={f.unit} onChange={set('unit')} />
+        <Field label="Strip count (tabs/caps per strip)" type="number" value={f.strip_count} onChange={set('strip_count')} />
         <Field label="Rack location" value={f.rack_location} onChange={set('rack_location')} />
         <Field label="Min stock alert" type="number" value={f.min_stock} onChange={set('min_stock')} />
       </div>

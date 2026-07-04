@@ -36,6 +36,15 @@ function PurchaseList() {
 
   const open = id => api(`/purchases/${id}`).then(d => setView(d.purchase)).catch(e => toast(e.message, 'red'));
 
+  const del = async (p) => {
+    if (!confirm(`Delete purchase ${p.invoice_no}? The stock it added will be reversed. This is refused if any of its stock was already sold.`)) return;
+    try {
+      await api(`/purchases/${p.id}`, { method: 'DELETE' });
+      toast('Purchase deleted — stock reversed', 'green');
+      setView(null); load();
+    } catch (e) { toast(e.message, 'red'); }
+  };
+
   return (
     <Card>
       <div className="toolbar">
@@ -59,6 +68,14 @@ function PurchaseList() {
           { key: 'paid_amount', label: 'Paid', num: true, render: r => fmt(r.paid_amount) },
           { key: 'pending_amount', label: 'Pending', num: true, render: r => r.pending_amount > 0.01 ? <b style={{ color: 'var(--red)' }}>{fmt(r.pending_amount)}</b> : <Badge color="green">paid</Badge> },
           { key: 'status', label: 'Status', render: r => <Badge>{r.status}</Badge> },
+          {
+            label: '', render: r => (
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn ghost sm" onClick={() => open(r.id)}>View</button>
+                {can(user, 'purchases.manage') && r.status !== 'returned' && <button className="btn ghost sm" onClick={() => del(r)}>🗑</button>}
+              </div>
+            ),
+          },
         ]}
         rows={rows}
       />
@@ -66,6 +83,8 @@ function PurchaseList() {
       {view && (
         <Modal wide title={`Purchase ${view.invoice_no} — ${view.supplier_name}`} onClose={() => setView(null)} footer={
           <>
+            {can(user, 'purchases.manage') && view.status !== 'returned' && <button className="btn red" onClick={() => del(view)}>🗑 Delete</button>}
+            <div style={{ flex: 1 }} />
             {can(user, 'purchases.manage') && <button className="btn orange" onClick={() => { setReturning(view); setView(null); }}>↩ Return to supplier</button>}
             <button className="btn ghost" onClick={() => setView(null)}>Close</button>
           </>
@@ -73,6 +92,9 @@ function PurchaseList() {
           {view.invoice_file && <div style={{ marginBottom: 10 }}><a href={view.invoice_file} target="_blank" rel="noreferrer">📎 View uploaded supplier invoice</a></div>}
           <Table columns={[
             { key: 'medicine_name', label: 'Medicine' },
+            { key: 'brand', label: 'Brand' },
+            { key: 'generic_name', label: 'Generic' },
+            { key: 'strip_count', label: 'Strip', num: true, render: r => r.strip_count || 1 },
             { key: 'batch_no', label: 'Batch' },
             { key: 'expiry_date', label: 'Expiry' },
             { key: 'qty', label: 'Qty', num: true },
@@ -96,23 +118,37 @@ function NewPurchase({ onClose, onSaved }) {
   const toast = useToast();
   const [suppliers, setSuppliers] = useState([]);
   const [meds, setMeds] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [generics, setGenerics] = useState([]);
   const [f, setF] = useState({ supplier_id: '', invoice_no: '', invoice_date: today(), paid_amount: '', paid_method: 'bank' });
   const [items, setItems] = useState([]);
   const [q, setQ] = useState('');
   const [invoiceFile, setInvoiceFile] = useState(null);
 
-  useEffect(() => { api('/purchases/suppliers').then(d => setSuppliers(d.suppliers)); }, []);
+  useEffect(() => {
+    api('/purchases/suppliers').then(d => setSuppliers(d.suppliers));
+    api('/inventory/brands').then(d => setBrands(d.brands)).catch(() => {});
+    api('/inventory/generics').then(d => setGenerics(d.generics)).catch(() => {});
+  }, []);
   useEffect(() => {
     if (q.length < 2) { setMeds([]); return; }
     const t = setTimeout(() => api('/inventory/medicines', { params: { q, limit: 10 } }).then(d => setMeds(d.medicines)), 200);
     return () => clearTimeout(t);
   }, [q]);
 
-  const addItem = m => {
-    setItems(it => [...it, {
-      medicine_id: m.id, name: m.name, batch_no: '', expiry_date: '', qty: '', free_qty: '',
-      purchase_price: '', mrp: '', selling_price: '', gst_rate: m.gst_rate,
-    }]);
+  const blankItem = (over = {}) => ({
+    medicine_id: null, name: '', brand: '', generic_name: '', strip_count: '', batch_no: '', expiry_date: '',
+    qty: '', free_qty: '', purchase_price: '', mrp: '', selling_price: '', gst_rate: 12, isNew: false, ...over,
+  });
+  const addExisting = m => {
+    setItems(it => [...it, blankItem({
+      medicine_id: m.id, name: m.name, brand: m.brand || '', generic_name: m.generic_name || '',
+      strip_count: m.strip_count || '', gst_rate: m.gst_rate,
+    })]);
+    setQ(''); setMeds([]);
+  };
+  const addNew = () => {
+    setItems(it => [...it, blankItem({ name: q.trim(), isNew: true })]);
     setQ(''); setMeds([]);
   };
   const setItem = (i, k) => e => setItems(items => items.map((it, ix) => ix === i ? { ...it, [k]: e.target.value } : it));
@@ -127,7 +163,21 @@ function NewPurchase({ onClose, onSaved }) {
     r.readAsDataURL(file);
   };
 
+  const validate = () => {
+    for (const it of items) {
+      if (!it.name.trim()) return 'Every row needs a medicine name';
+      if (!it.brand.trim() || !it.generic_name.trim()) return `${it.name}: brand name and generic name are required`;
+      if (!Number(it.strip_count)) return `${it.name}: strip count is required`;
+      if (!it.batch_no.trim()) return `${it.name}: batch number is required`;
+      if (!it.expiry_date) return `${it.name}: expiry date is required`;
+      if (!Number(it.qty)) return `${it.name}: quantity is required`;
+    }
+    return null;
+  };
+
   const save = async () => {
+    const err = validate();
+    if (err) return toast(err, 'red');
     try {
       await api('/purchases', {
         method: 'POST',
@@ -135,7 +185,10 @@ function NewPurchase({ onClose, onSaved }) {
           ...f, supplier_id: Number(f.supplier_id), paid_amount: Number(f.paid_amount) || 0,
           invoice_file: invoiceFile || undefined,
           items: items.map(it => ({
-            medicine_id: it.medicine_id, batch_no: it.batch_no, expiry_date: it.expiry_date,
+            medicine_id: it.medicine_id || undefined, medicine_name: it.name.trim(),
+            brand: it.brand.trim(), generic_name: it.generic_name.trim(), strip_count: Number(it.strip_count) || 1,
+            gst_rate: it.gst_rate,
+            batch_no: it.batch_no.trim(), expiry_date: it.expiry_date,
             qty: Number(it.qty), free_qty: Number(it.free_qty) || 0,
             purchase_price: Number(it.purchase_price), mrp: Number(it.mrp),
             selling_price: Number(it.selling_price) || Number(it.mrp),
@@ -155,6 +208,9 @@ function NewPurchase({ onClose, onSaved }) {
         <button className="btn green" onClick={save} disabled={!f.supplier_id || !f.invoice_no || !items.length}>Save Purchase</button>
       </>
     }>
+      <datalist id="brand-list">{brands.map(b => <option key={b.name} value={b.name} />)}</datalist>
+      <datalist id="generic-list">{generics.map(g => <option key={g.name} value={g.name} />)}</datalist>
+
       <div className="form-row">
         <Field label="Supplier *">
           <select value={f.supplier_id} onChange={e => setF(s => ({ ...s, supplier_id: e.target.value }))}>
@@ -177,33 +233,52 @@ function NewPurchase({ onClose, onSaved }) {
       {invoiceFile && <div className="ok-msg">Invoice file attached ✓</div>}
 
       <div style={{ position: 'relative', marginBottom: 12 }}>
-        <input className="input" placeholder="🔍 Add medicine…" value={q} onChange={e => setQ(e.target.value)} />
-        {meds.length > 0 && (
+        <input className="input" placeholder="🔍 Search existing medicine, or type a new name and click Add new…"
+          value={q} onChange={e => setQ(e.target.value)} />
+        {(meds.length > 0 || q.trim().length >= 2) && (
           <div className="pos-search-results">
             {meds.map(m => (
-              <div key={m.id} className="item" onMouseDown={() => addItem(m)}>
-                <div><b>{m.name}</b> <span className="muted">{m.brand}</span></div>
-                <div className="muted">GST {m.gst_rate}%</div>
+              <div key={m.id} className="item" onMouseDown={() => addExisting(m)}>
+                <div><b>{m.name}</b> <span className="muted">{m.brand} · {m.generic_name}</span></div>
+                <div className="muted">GST {m.gst_rate}% · {m.strip_count || 1}/strip</div>
               </div>
             ))}
+            {q.trim().length >= 2 && (
+              <div className="item" onMouseDown={addNew} style={{ background: 'var(--brand-light, #eaf1fa)' }}>
+                <div><b>➕ Add new medicine:</b> "{q.trim()}"</div>
+                <div className="muted">brand, generic & strip count required</div>
+              </div>
+            )}
           </div>
         )}
       </div>
       <div className="table-wrap">
         <table className="tbl">
-          <thead><tr><th>Medicine</th><th>Batch *</th><th>Expiry *</th><th className="num">Qty *</th><th className="num">Free</th><th className="num">Cost *</th><th className="num">MRP *</th><th className="num">Selling</th><th /></tr></thead>
+          <thead><tr>
+            <th>Medicine</th><th>Brand *</th><th>Generic *</th><th className="num">Strip *</th>
+            <th>Batch *</th><th>Expiry (MM/YYYY) *</th><th className="num">Qty *</th><th className="num">Free</th>
+            <th className="num">Cost *</th><th className="num">MRP *</th><th className="num">Selling</th><th />
+          </tr></thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan="9"><div className="empty">Search above to add purchase items</div></td></tr>}
+            {items.length === 0 && <tr><td colSpan="12"><div className="empty">Search above to add purchase items</div></td></tr>}
             {items.map((it, i) => (
               <tr key={i}>
-                <td><b>{it.name}</b></td>
+                <td style={{ minWidth: 130 }}>
+                  {it.isNew
+                    ? <input className="input" style={{ width: 130 }} value={it.name} onChange={setItem(i, 'name')} placeholder="Medicine name" />
+                    : <b>{it.name}</b>}
+                  {it.isNew && <div style={{ fontSize: '.65rem', color: 'var(--green)' }}>NEW</div>}
+                </td>
+                <td><input className="input" style={{ width: 110 }} list="brand-list" value={it.brand} onChange={setItem(i, 'brand')} /></td>
+                <td><input className="input" style={{ width: 120 }} list="generic-list" value={it.generic_name} onChange={setItem(i, 'generic_name')} /></td>
+                <td><input className="input" type="number" min="1" style={{ width: 58, textAlign: 'right' }} value={it.strip_count} onChange={setItem(i, 'strip_count')} placeholder="10" /></td>
                 <td><input className="input" style={{ width: 90 }} value={it.batch_no} onChange={setItem(i, 'batch_no')} /></td>
-                <td><input className="input" type="date" style={{ width: 140 }} value={it.expiry_date} onChange={setItem(i, 'expiry_date')} /></td>
-                <td><input className="input" type="number" style={{ width: 66, textAlign: 'right' }} value={it.qty} onChange={setItem(i, 'qty')} /></td>
-                <td><input className="input" type="number" style={{ width: 60, textAlign: 'right' }} value={it.free_qty} onChange={setItem(i, 'free_qty')} /></td>
-                <td><input className="input" type="number" style={{ width: 80, textAlign: 'right' }} value={it.purchase_price} onChange={setItem(i, 'purchase_price')} /></td>
-                <td><input className="input" type="number" style={{ width: 80, textAlign: 'right' }} value={it.mrp} onChange={setItem(i, 'mrp')} /></td>
-                <td><input className="input" type="number" style={{ width: 80, textAlign: 'right' }} value={it.selling_price} onChange={setItem(i, 'selling_price')} placeholder="=MRP" /></td>
+                <td><input className="input" type="month" style={{ width: 140 }} value={it.expiry_date} onChange={setItem(i, 'expiry_date')} /></td>
+                <td><input className="input" type="number" style={{ width: 62, textAlign: 'right' }} value={it.qty} onChange={setItem(i, 'qty')} /></td>
+                <td><input className="input" type="number" style={{ width: 56, textAlign: 'right' }} value={it.free_qty} onChange={setItem(i, 'free_qty')} /></td>
+                <td><input className="input" type="number" style={{ width: 76, textAlign: 'right' }} value={it.purchase_price} onChange={setItem(i, 'purchase_price')} /></td>
+                <td><input className="input" type="number" style={{ width: 76, textAlign: 'right' }} value={it.mrp} onChange={setItem(i, 'mrp')} /></td>
+                <td><input className="input" type="number" style={{ width: 76, textAlign: 'right' }} value={it.selling_price} onChange={setItem(i, 'selling_price')} placeholder="=MRP" /></td>
                 <td><button className="x-btn" onClick={() => setItems(items => items.filter((_, ix) => ix !== i))}>✕</button></td>
               </tr>
             ))}

@@ -33,24 +33,45 @@ router.get('/medicines/pos-search', requirePermission('billing.create', 'invento
   const branchId = scopeBranch(req) || req.user.branch_id;
   if (!q || !branchId) return res.json({ results: [] });
   const rows = await all(`
-    SELECT m.id, m.name, m.generic_name, m.category, m.brand, m.gst_rate, m.unit, m.rack_location, m.prescription_required,
+    SELECT m.id, m.name, m.generic_name, m.category, m.brand, m.gst_rate, m.unit, m.rack_location, m.prescription_required, m.strip_count,
            b.id AS batch_id, b.batch_no, b.expiry_date, b.mrp, b.selling_price, b.qty
     FROM medicines m
     JOIN stock_batches b ON b.medicine_id = m.id AND b.branch_id = ? AND b.qty > 0
-    WHERE m.active = 1 AND (m.name ILIKE ? OR m.generic_name ILIKE ? OR m.category ILIKE ? OR m.barcode = ? OR b.batch_no = ?)
+    WHERE m.active = 1 AND (m.name ILIKE ? OR m.generic_name ILIKE ? OR m.category ILIKE ? OR m.brand ILIKE ? OR m.barcode = ? OR b.batch_no = ?)
       AND b.expiry_date >= CURRENT_DATE
     ORDER BY m.name, b.expiry_date LIMIT 30`,
-    branchId, `%${q}%`, `%${q}%`, `%${q}%`, q, q);
+    branchId, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, q, q);
   res.json({ results: rows });
+}));
+
+// Brand / generic master lists for searchable dropdowns (new values are
+// created simply by saving a medicine or purchase item with a new name)
+router.get('/brands', requirePermission('inventory.view', 'purchases.view', 'billing.create'), wrap(async (req, res) => {
+  const { q = '' } = req.query;
+  const rows = await all(`SELECT brand AS name, COUNT(*) AS medicines FROM medicines
+    WHERE active = 1 AND brand != '' ${q ? 'AND brand ILIKE ?' : ''}
+    GROUP BY brand ORDER BY brand`, ...(q ? [`%${q}%`] : []));
+  res.json({ brands: rows });
+}));
+
+router.get('/generics', requirePermission('inventory.view', 'purchases.view', 'billing.create'), wrap(async (req, res) => {
+  const { q = '' } = req.query;
+  const rows = await all(`SELECT generic_name AS name, COUNT(*) AS medicines,
+      string_agg(DISTINCT brand, ', ') AS brands
+    FROM medicines WHERE active = 1 AND generic_name != '' ${q ? 'AND generic_name ILIKE ?' : ''}
+    GROUP BY generic_name ORDER BY generic_name`, ...(q ? [`%${q}%`] : []));
+  res.json({ generics: rows });
 }));
 
 router.post('/medicines', requirePermission('inventory.edit'), wrap(async (req, res) => {
   const { name, generic_name = '', category = 'General', brand = '', barcode = null, hsn = '3004',
-    gst_rate = 12, unit = 'Strip', rack_location = '', min_stock = 10, prescription_required = 0 } = req.body || {};
+    gst_rate = 12, unit = 'Strip', rack_location = '', min_stock = 10, prescription_required = 0,
+    strip_count = 1 } = req.body || {};
   if (!name) return res.status(400).json({ error: 'Medicine name is required' });
-  const id = await insert(`INSERT INTO medicines (name, generic_name, category, brand, barcode, hsn, gst_rate, unit, rack_location, min_stock, prescription_required)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    name.trim(), generic_name, category, brand, barcode || null, hsn, gst_rate, unit, rack_location, min_stock, prescription_required ? 1 : 0);
+  const id = await insert(`INSERT INTO medicines (name, generic_name, category, brand, barcode, hsn, gst_rate, unit, rack_location, min_stock, prescription_required, strip_count)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    name.trim(), generic_name, category, brand, barcode || null, hsn, gst_rate, unit, rack_location, min_stock, prescription_required ? 1 : 0,
+    Math.max(1, Number(strip_count) || 1));
   audit(req, 'create', 'medicines', id, name);
   res.json({ id });
 }));
@@ -61,12 +82,14 @@ router.put('/medicines/:id', requirePermission('inventory.edit'), wrap(async (re
   await run(`UPDATE medicines SET name=COALESCE(?,name), generic_name=COALESCE(?,generic_name),
     category=COALESCE(?,category), brand=COALESCE(?,brand), barcode=COALESCE(?,barcode), hsn=COALESCE(?,hsn),
     gst_rate=COALESCE(?,gst_rate), unit=COALESCE(?,unit), rack_location=COALESCE(?,rack_location),
-    min_stock=COALESCE(?,min_stock), prescription_required=COALESCE(?,prescription_required), active=COALESCE(?,active)
+    min_stock=COALESCE(?,min_stock), prescription_required=COALESCE(?,prescription_required), active=COALESCE(?,active),
+    strip_count=COALESCE(?,strip_count)
     WHERE id=?`,
     f.name, f.generic_name, f.category, f.brand, f.barcode, f.hsn, f.gst_rate, f.unit,
-    f.rack_location, f.min_stock, f.prescription_required, f.active, req.params.id);
+    f.rack_location, f.min_stock, f.prescription_required, f.active,
+    f.strip_count != null ? Math.max(1, Number(f.strip_count) || 1) : null, req.params.id);
   auditDiff(req, 'medicines', Number(req.params.id), before, f,
-    ['name', 'generic_name', 'category', 'brand', 'barcode', 'gst_rate', 'rack_location', 'min_stock', 'active']);
+    ['name', 'generic_name', 'category', 'brand', 'barcode', 'gst_rate', 'rack_location', 'min_stock', 'active', 'strip_count']);
   res.json({ ok: true });
 }));
 
@@ -79,13 +102,18 @@ router.delete('/medicines/:id', requirePermission('inventory.edit'), wrap(async 
 // ---------------- Stock (batch level) ----------------
 router.get('/stock', requirePermission('inventory.view'), wrap(async (req, res) => {
   const branchId = scopeBranch(req);
-  const { q = '', medicine_id } = req.query;
+  const { q = '', medicine_id, expiry_before } = req.query;
   const where = ['1=1'];
   const params = [];
   if (branchId) { where.push('b.branch_id = ?'); params.push(branchId); }
   if (medicine_id) { where.push('b.medicine_id = ?'); params.push(medicine_id); }
-  if (q) { where.push('(m.name ILIKE ? OR b.batch_no ILIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
+  if (expiry_before) { where.push('b.expiry_date <= ?'); params.push(expiry_before); }
+  if (q) {
+    where.push('(m.name ILIKE ? OR b.batch_no ILIKE ? OR m.brand ILIKE ? OR m.generic_name ILIKE ?)');
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+  }
   const rows = await all(`SELECT b.*, m.name AS medicine_name, m.unit, m.min_stock, m.rack_location, m.category,
+      m.brand, m.generic_name, m.strip_count,
       br.name AS branch_name, br.code AS branch_code,
       (b.expiry_date - CURRENT_DATE) AS days_to_expiry
     FROM stock_batches b

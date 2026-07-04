@@ -170,12 +170,14 @@ export async function runSeed({ force = false } = {}) {
     const medIds = [];
     for (let i = 0; i < meds.length; i++) {
       const m = meds[i];
-      medIds.push(await db.insert(`INSERT INTO medicines (name, generic_name, category, brand, barcode, hsn, gst_rate, unit, rack_location, min_stock, prescription_required)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      // Tablets/capsules come in strips of 10/15; other forms are single units
+      const stripCount = ['Tablet', 'Capsule'].includes(m[2]) ? (i % 2 ? 15 : 10) : 1;
+      medIds.push(await db.insert(`INSERT INTO medicines (name, generic_name, category, brand, barcode, hsn, gst_rate, unit, rack_location, min_stock, prescription_required, strip_count)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
         m[0], m[1], m[2], m[3],
         `890${String(1000000000 + i * 7919).slice(0, 10)}`,
         m[2] === 'Surgical' ? '9018' : '3004',
-        m[4], m[5], racks[i % racks.length] + '-' + (Math.floor(i / 10) + 1), m[6], m[7]));
+        m[4], m[5], racks[i % racks.length] + '-' + (Math.floor(i / 10) + 1), m[6], m[7], stripCount));
     }
 
     // Deterministic pseudo-random for reproducible sample data
