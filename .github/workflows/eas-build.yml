@@ -1,0 +1,40 @@
+name: EAS Build (Android APK)
+
+# Auto-build the native APK on EAS whenever the mobile app changes.
+# Requires one repo secret: EXPO_TOKEN
+#   Create it at https://expo.dev/accounts/aravinthkuwait/settings/access-tokens
+#   then add it under GitHub → repo → Settings → Secrets and variables → Actions.
+on:
+  push:
+    branches: [main, claude/rs-group-medical-saas-k2eivu]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/eas-build.yml'
+  workflow_dispatch: {} # allows a manual "Run workflow" button too
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Trigger Android APK build (preview profile)
+        run: eas build --platform android --profile preview --non-interactive --no-wait
