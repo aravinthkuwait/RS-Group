@@ -22,6 +22,7 @@ import AdminBranchesScreen from './src/screens/AdminBranchesScreen';
 import ReportsScreen from './src/screens/ReportsScreen';
 import PurchasesScreen from './src/screens/PurchasesScreen';
 import PurchaseEntryScreen from './src/screens/PurchaseEntryScreen';
+import UsageScreen from './src/screens/UsageScreen';
 
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
@@ -138,6 +139,7 @@ export default function App() {
               <Stack.Screen name="Reports" component={ReportsScreen} />
               <Stack.Screen name="Purchases" component={PurchasesScreen} options={{ title: 'Purchases' }} />
               <Stack.Screen name="PurchaseEntry" component={PurchaseEntryScreen} options={{ title: 'New Purchase' }} />
+              <Stack.Screen name="Usage" component={UsageScreen} options={{ title: 'Usage & Cost' }} />
               <Stack.Screen name="AdminUsers" component={AdminUsersScreen} options={{ title: 'Users & Staff' }} />
               <Stack.Screen name="AdminBranches" component={AdminBranchesScreen} options={{ title: 'Branches' }} />
             </Stack.Navigator>
