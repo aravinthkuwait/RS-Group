@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, Modal, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, Modal, ScrollView, Linking } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { api, fmt } from '../api';
+import { api, fmt, BASE_URL, getAuthToken } from '../api';
 import { useAuth, useBranch, can } from '../../App';
 import { colors, shadow } from '../theme';
 import { Field, Chips, Btn, BranchBar } from '../ui';
@@ -185,7 +185,10 @@ export default function BillingScreen() {
         },
       });
       const saved = (d.sale?.discount || 0) + (d.sale?.item_discount || 0);
-      Alert.alert('Bill saved ✓', `${d.invoice_no}\nTotal ${fmt(d.total)}${saved > 0 ? `\nCustomer saved ${fmt(saved)} 🎉` : ''}`);
+      Alert.alert('Bill saved ✓', `${d.invoice_no}\nTotal ${fmt(d.total)}${saved > 0 ? `\nCustomer saved ${fmt(saved)} 🎉` : ''}`, [
+        { text: '🖨 Print Receipt', onPress: () => Linking.openURL(`${BASE_URL}/api/sales/${d.id}/pdf?token=${getAuthToken()}`) },
+        { text: 'OK', style: 'cancel' },
+      ]);
       setCart([]); setPhone(''); setCustomer(null);
       setDiscType('none'); setDiscValue(''); setPromoId(null); setApproval(null);
     } catch (e) {
