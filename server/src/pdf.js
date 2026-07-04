@@ -197,7 +197,7 @@ export async function thermalReceiptPdf(res, sale, items, branch, customer, staf
   const invoiceCfg = (await getSetting('invoice', {})) || {};
   const company = (await getSetting('company', {})) || {};
   const W = 227, M = 8, CW = W - M * 2;
-  const doc = new PDFDocument({ size: [W, 210 + items.length * 9], margin: M });
+  const doc = new PDFDocument({ size: [W, 245 + items.length * 9], margin: M });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="receipt-${sale.invoice_no.replaceAll('/', '-')}.pdf"`);
   doc.pipe(res);
@@ -209,13 +209,14 @@ export async function thermalReceiptPdf(res, sale, items, branch, customer, staf
   const cols = [['SN', 2], ['DESCRIPTION', 18], ['QTY', 3, true], ['BATCH', 7], ['EXP', 5], ['AMOUNT', 8, true]];
   const row = vals => cols.map(([, n, right], i) => pad(vals[i], n, right)).join(' ');
   const dash = '-'.repeat(cols.reduce((a, [, n]) => a + n + 1, -1));
+  const boxLine = `+${'-'.repeat(dash.length)}+`;
   const centered = (text, size, bold) => doc.font(bold ? 'Courier-Bold' : 'Courier').fontSize(size).text(text, { width: CW, align: 'center' });
 
   centered(company.name || 'RS Group', 9, true);
   if (company.division) centered(company.division, 6.5);
   centered(branch?.address || company.address || '', 6.5);
   const dl = branch?.drug_license || company.drug_license;
-  if (dl) centered(`D.L.No.: ${dl}`, 6.5);
+  if (dl) centered(`D.L.NO.: ${dl}`, 6.5);
   const gstin = branch?.gstin || company.gstin;
   if (gstin) centered(`GSTIN : ${gstin}`, 6.5);
   if (branch?.phone || company.phone) centered(`Phone : ${branch?.phone || company.phone}`, 6.5);
@@ -238,14 +239,14 @@ export async function thermalReceiptPdf(res, sale, items, branch, customer, staf
 
   const grossAmount = round2(sale.subtotal - sale.discount);
   doc.fontSize(7.5).text(`TOTAL :  ${grossAmount.toFixed(2)}`, { align: 'right' });
-  if (sale.round_off) doc.text(`R.OFF: ${sale.round_off.toFixed(2)}`, { align: 'right' });
-  doc.fontSize(6.5).text(dash);
-  doc.font('Courier-Bold').fontSize(10).text(`Total Bill Value is : ${sale.total.toFixed(2)}`, { align: 'right' });
-  doc.font('Courier').fontSize(6.5).text(`Rs. ${numberToWords(sale.total)} only`, { align: 'right' });
+  doc.fontSize(6.5).text(boxLine);
+  if (sale.round_off) doc.fontSize(7.5).text(`R.OFF: ${sale.round_off.toFixed(2)}`, { align: 'right' });
+  doc.font('Courier-Bold').fontSize(9).text(`Total Bill Value is :  ${sale.total.toFixed(2)}`, { align: 'right' });
+  doc.font('Courier').fontSize(7);
   const savings = round2(items.reduce((a, it) => a + (it.mrp - it.price) * it.qty, 0) + round2(sale.discount || 0) + round2(sale.item_discount || 0));
-  if (savings > 0) doc.font('Courier').fontSize(7).text(`Today you saved Rs. ${savings.toFixed(2)}`, { align: 'right' });
-  doc.moveDown(0.3);
-  doc.fontSize(6.5).text(dash);
+  if (savings > 0) doc.text(`Today you saved Rs. ${savings.toFixed(2)}`, { align: 'right' });
+  doc.fontSize(6.5).text(`Rs. ${numberToWords(sale.total)} only`, { align: 'right' });
+  doc.text(boxLine);
   if (invoiceCfg.terms) centered(invoiceCfg.terms, 6.5);
   centered(invoiceCfg.footer || 'Goods Once Sold Cannot be Taken Back or Exchange', 6.5);
   centered('Wishing You a Speedy Recovery', 6.5);
