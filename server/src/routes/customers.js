@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { all, get, run, insert } from '../db.js';
 import { requirePermission, scopeBranch, writeBranch } from '../auth.js';
-import { audit, auditDiff, round2, today, customerCreditBalance } from '../util.js';
+import { audit, auditDiff, round2, today, customerCreditBalance, customerCreditBalances } from '../util.js';
 
 const router = Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -20,8 +20,8 @@ router.get('/', requirePermission('customers.view'), wrap(async (req, res) => {
     FROM customers c LEFT JOIN branches b ON b.id = c.branch_id
     WHERE ${where.join(' AND ')} ORDER BY c.name LIMIT ? OFFSET ?`,
     ...params, Number(limit), (Number(page) - 1) * Number(limit));
-  const customers = [];
-  for (const c of rows) customers.push({ ...c, credit_balance: await customerCreditBalance(c.id) });
+  const balances = await customerCreditBalances(rows.map(c => c.id));
+  const customers = rows.map(c => ({ ...c, credit_balance: balances[c.id] || 0 }));
   res.json({ customers, total });
 }));
 
