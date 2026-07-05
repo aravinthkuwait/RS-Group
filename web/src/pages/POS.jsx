@@ -257,14 +257,15 @@ export default function POS() {
             <div className="table-wrap" style={{ marginTop: 14 }}>
               <table className="tbl">
                 <thead>
-                  <tr><th>Item</th><th>Batch</th><th className="num">MRP</th><th className="num">Price</th><th className="num" style={{ width: 90 }}>Qty</th>{canDiscount && <th className="num" style={{ width: 90 }}>Disc ₹</th>}<th className="num">Amount</th><th /></tr>
+                  <tr><th>Item</th><th>Batch</th><th>Exp</th><th className="num">MRP</th><th className="num">Price</th><th className="num" style={{ width: 90 }}>Qty</th>{canDiscount && <th className="num" style={{ width: 90 }}>Disc ₹</th>}<th className="num">Amount</th><th /></tr>
                 </thead>
                 <tbody>
-                  {cart.length === 0 && <tr><td colSpan={canDiscount ? 8 : 7}><div className="empty">Cart is empty — scan or search to add medicines</div></td></tr>}
+                  {cart.length === 0 && <tr><td colSpan={canDiscount ? 9 : 8}><div className="empty">Cart is empty — scan or search to add medicines</div></td></tr>}
                   {cart.map(i => (
                     <tr key={i.batch_id}>
                       <td><b>{i.name}</b>{!!i.rx && <span className="badge orange" style={{ marginLeft: 6 }}>Rx</span>}</td>
                       <td className="muted">{i.batch_no}</td>
+                      <td className="muted">{i.expiry}</td>
                       <td className="num muted">{fmt(i.mrp)}</td>
                       <td className="num">{fmt(i.price)}</td>
                       <td className="num">
