@@ -1,7 +1,20 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, Share } from 'react-native';
 import { useBranch } from '../App';
 import { colors, shadow } from './theme';
+
+// CSV export: builds the same CSV as the web ExportBtn and hands it to the OS
+// share sheet (mail/WhatsApp/Drive...). columns = [{ key, label }].
+export async function shareCsv(filename, columns, rows) {
+  const esc = v => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const csv = [columns.map(c => esc(c.label)).join(',')]
+    .concat((rows || []).map(r => columns.map(c => esc(r[c.key])).join(',')))
+    .join('\n');
+  try { await Share.share({ title: filename, message: csv }); } catch {}
+}
 
 export function Field({ label, ...props }) {
   return (
