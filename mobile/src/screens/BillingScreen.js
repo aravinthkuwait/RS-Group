@@ -123,7 +123,7 @@ export default function BillingScreen() {
       }
       return [...c, {
         batch_id: r.batch_id, medicine_id: r.id, name: r.name, price: r.selling_price, mrp: r.mrp,
-        qty: 1, stock: r.qty, batch_no: r.batch_no, category: r.category, gst_rate: r.gst_rate,
+        qty: 1, stock: r.qty, batch_no: r.batch_no, expiry: r.expiry_date, category: r.category, gst_rate: r.gst_rate,
         rx: r.prescription_required, disc: '',
       }];
     });
@@ -330,7 +330,7 @@ export default function BillingScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontWeight: '700' }}>{item.name}{!!item.rx && <Text style={{ color: colors.orange, fontSize: 11 }}>  Rx</Text>}</Text>
-                <Text style={{ color: colors.ink3, fontSize: 12 }}>{item.batch_no} · MRP {fmt(item.mrp)} · {fmt(item.price)}</Text>
+                <Text style={{ color: colors.ink3, fontSize: 12 }}>{item.batch_no} · Exp {item.expiry} · MRP {fmt(item.mrp)} · {fmt(item.price)}</Text>
               </View>
               <TouchableOpacity onPress={() => setCart(c => c.map(i => i.batch_id === item.batch_id ? { ...i, qty: Math.max(1, i.qty - 1) } : i))}>
                 <Text style={{ fontSize: 20, paddingHorizontal: 10 }}>−</Text>

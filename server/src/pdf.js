@@ -211,6 +211,11 @@ export async function thermalReceiptPdf(res, sale, items, branch, customer, staf
   const dash = '-'.repeat(cols.reduce((a, [, n]) => a + n + 1, -1));
   const boxLine = `+${'-'.repeat(dash.length)}+`;
   const centered = (text, size, bold) => doc.font(bold ? 'Courier-Bold' : 'Courier').fontSize(size).text(text, { width: CW, align: 'center' });
+  // Right-aligned totals/footer lines must stop at the same edge as the dash/box
+  // border, not the full CW — otherwise (no explicit width) pdfkit right-aligns
+  // them to the page margin, past the border, and they look like they overflow it.
+  const TABLE_W = doc.font('Courier').fontSize(6.5).widthOfString(dash);
+  const alignedRight = (text, size, bold) => doc.font(bold ? 'Courier-Bold' : 'Courier').fontSize(size).text(text, { width: TABLE_W, align: 'right' });
 
   centered(company.name || 'RS Group', 9, true);
   if (company.division) centered(company.division, 6.5);
@@ -238,15 +243,14 @@ export async function thermalReceiptPdf(res, sale, items, branch, customer, staf
   doc.text(dash);
 
   const grossAmount = round2(sale.subtotal - sale.discount);
-  doc.fontSize(7.5).text(`TOTAL :  ${grossAmount.toFixed(2)}`, { align: 'right' });
-  doc.fontSize(6.5).text(boxLine);
-  if (sale.round_off) doc.fontSize(7.5).text(`R.OFF: ${sale.round_off.toFixed(2)}`, { align: 'right' });
-  doc.font('Courier-Bold').fontSize(9).text(`Total Bill Value is :  ${sale.total.toFixed(2)}`, { align: 'right' });
-  doc.font('Courier').fontSize(7);
+  alignedRight(`TOTAL :  ${grossAmount.toFixed(2)}`, 7.5);
+  doc.font('Courier').fontSize(6.5).text(boxLine);
+  if (sale.round_off) alignedRight(`R.OFF: ${sale.round_off.toFixed(2)}`, 7.5);
+  alignedRight(`Total Bill Value is :  ${sale.total.toFixed(2)}`, 9, true);
   const savings = round2(items.reduce((a, it) => a + (it.mrp - it.price) * it.qty, 0) + round2(sale.discount || 0) + round2(sale.item_discount || 0));
-  if (savings > 0) doc.text(`Today you saved Rs. ${savings.toFixed(2)}`, { align: 'right' });
-  doc.fontSize(6.5).text(`Rs. ${numberToWords(sale.total)} only`, { align: 'right' });
-  doc.text(boxLine);
+  if (savings > 0) alignedRight(`Today you saved Rs. ${savings.toFixed(2)}`, 7);
+  alignedRight(`Rs. ${numberToWords(sale.total)} only`, 6.5);
+  doc.font('Courier').fontSize(6.5).text(boxLine);
   if (invoiceCfg.terms) centered(invoiceCfg.terms, 6.5);
   centered(invoiceCfg.footer || 'Goods Once Sold Cannot be Taken Back or Exchange', 6.5);
   centered('Wishing You a Speedy Recovery', 6.5);

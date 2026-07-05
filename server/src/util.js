@@ -156,6 +156,22 @@ export async function customerCreditBalance(customerId) {
   return round2(credit - paid);
 }
 
+// Same as customerCreditBalance() but for a whole result page in one round trip
+// (avoids an N+1 loop when listing/searching customers).
+export async function customerCreditBalances(customerIds) {
+  if (!customerIds.length) return {};
+  const rows = await all(`
+    SELECT c.id,
+      COALESCE(sc.credit, 0) - COALESCE(pc.paid, 0) AS balance
+    FROM unnest(?::int[]) AS c(id)
+    LEFT JOIN (SELECT customer_id, SUM(credit_amount) AS credit FROM sales
+               WHERE customer_id = ANY(?) AND status != 'cancelled' GROUP BY customer_id) sc ON sc.customer_id = c.id
+    LEFT JOIN (SELECT customer_id, SUM(CASE WHEN type='receipt' THEN amount ELSE -amount END) AS paid FROM payments
+               WHERE customer_id = ANY(?) AND sale_id IS NULL GROUP BY customer_id) pc ON pc.customer_id = c.id`,
+    customerIds, customerIds, customerIds);
+  return Object.fromEntries(rows.map(r => [r.id, round2(r.balance)]));
+}
+
 export async function supplierBalance(supplierId) {
   const s = await get('SELECT opening_balance FROM suppliers WHERE id = ?', supplierId);
   const purchases = (await get(`SELECT COALESCE(SUM(total),0) AS t FROM purchases
