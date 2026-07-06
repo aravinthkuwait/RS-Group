@@ -66,12 +66,16 @@ router.put('/:id(\\d+)', requirePermission('customers.manage'), wrap(async (req,
   const f = req.body || {};
   const before = await get('SELECT * FROM customers WHERE id = ?', req.params.id);
   if (!before) return res.status(404).json({ error: 'Customer not found' });
+  if (f.discount_percent !== undefined && f.discount_percent !== null) {
+    const pct = Number(f.discount_percent) || 0;
+    if (pct < 0 || pct > 100) return res.status(400).json({ error: 'Customer discount % must be 0-100' });
+  }
   await run(`UPDATE customers SET name=COALESCE(?,name), phone=COALESCE(?,phone), email=COALESCE(?,email),
-    address=COALESCE(?,address), dob=COALESCE(?,dob), credit_limit=COALESCE(?,credit_limit),
+    address=COALESCE(?,address), dob=?, credit_limit=COALESCE(?,credit_limit),
     loyalty_points=COALESCE(?,loyalty_points), notes=COALESCE(?,notes), active=COALESCE(?,active),
     gstin=COALESCE(?,gstin), customer_type=COALESCE(?,customer_type),
     discount_percent=COALESCE(?,discount_percent) WHERE id=?`,
-    f.name, f.phone, f.email, f.address, f.dob || null, f.credit_limit, f.loyalty_points, f.notes, f.active,
+    f.name, f.phone, f.email, f.address, 'dob' in f ? (f.dob || null) : before.dob, f.credit_limit, f.loyalty_points, f.notes, f.active,
     f.gstin, f.customer_type, f.discount_percent, req.params.id);
   auditDiff(req, 'customers', Number(req.params.id), before, f,
     ['name', 'phone', 'email', 'address', 'credit_limit', 'notes', 'active', 'gstin', 'customer_type', 'discount_percent']);

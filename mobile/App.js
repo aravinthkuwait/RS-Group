@@ -23,6 +23,13 @@ import ReportsScreen from './src/screens/ReportsScreen';
 import PurchasesScreen from './src/screens/PurchasesScreen';
 import PurchaseEntryScreen from './src/screens/PurchaseEntryScreen';
 import UsageScreen from './src/screens/UsageScreen';
+import SalesScreen from './src/screens/SalesScreen';
+import TransfersScreen from './src/screens/TransfersScreen';
+import OffersScreen from './src/screens/OffersScreen';
+import AccountsScreen from './src/screens/AccountsScreen';
+import MedicinesScreen from './src/screens/MedicinesScreen';
+import AnnounceScreen from './src/screens/AnnounceScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 
 const AuthCtx = createContext(null);
 export const useAuth = () => useContext(AuthCtx);
@@ -130,7 +137,14 @@ export default function App() {
           {!user ? <LoginScreen /> : (
             <Stack.Navigator screenOptions={logoHeader}>
               <Stack.Screen name="Main" component={Tabs} options={{ headerShown: false }} />
-              <Stack.Screen name="Expiry" component={ExpiryScreen} options={{ title: 'Expiry Check' }} />
+              <Stack.Screen name="Expiry" component={ExpiryScreen} options={{ title: 'Stock Alerts' }} />
+              <Stack.Screen name="Sales" component={SalesScreen} options={{ title: 'Sales & Bills' }} />
+              <Stack.Screen name="Transfers" component={TransfersScreen} options={{ title: 'Stock Transfers' }} />
+              <Stack.Screen name="Offers" component={OffersScreen} options={{ title: 'Discounts & Offers' }} />
+              <Stack.Screen name="Accounts" component={AccountsScreen} options={{ title: 'Accounts & Expenses' }} />
+              <Stack.Screen name="Medicines" component={MedicinesScreen} options={{ title: 'Medicines' }} />
+              <Stack.Screen name="Announce" component={AnnounceScreen} options={{ title: 'Announcements' }} />
+              <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
               <Stack.Screen name="Customers" component={CustomersScreen} />
               <Stack.Screen name="Deliveries" component={DeliveriesScreen} />
               <Stack.Screen name="Tasks" component={TasksScreen} options={{ title: 'My Tasks' }} />

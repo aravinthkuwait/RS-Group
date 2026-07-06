@@ -52,15 +52,22 @@ router.put('/:id(\\d+)', requirePermission('discounts.manage'), wrap(async (req,
   if (!before) return res.status(404).json({ error: 'Offer not found' });
   const f = req.body || {};
   if (f.discount_type && !['percent', 'amount'].includes(f.discount_type)) return res.status(400).json({ error: 'Invalid discount type' });
+  // Keep category/medicine_id consistent with the (possibly changed) offer type,
+  // mirroring the create route — a medicine offer switched to "all bills" must
+  // not keep its old medicine_id.
+  const appliesTo = f.applies_to || before.applies_to;
+  const category = appliesTo === 'category' ? (f.category !== undefined ? f.category : before.category) : '';
+  const medicineId = appliesTo === 'medicine'
+    ? (f.medicine_id !== undefined ? (f.medicine_id || null) : before.medicine_id)
+    : null;
   await run(`UPDATE promotions SET name=COALESCE(?,name), description=COALESCE(?,description),
     branch_id=?, discount_type=COALESCE(?,discount_type), discount_value=COALESCE(?,discount_value),
-    applies_to=COALESCE(?,applies_to), category=COALESCE(?,category), medicine_id=?,
+    applies_to=COALESCE(?,applies_to), category=?, medicine_id=?,
     min_bill_amount=COALESCE(?,min_bill_amount), from_date=COALESCE(?,from_date),
     to_date=COALESCE(?,to_date), active=COALESCE(?,active) WHERE id=?`,
     f.name, f.description,
     f.branch_id !== undefined ? (f.branch_id || null) : before.branch_id,
-    f.discount_type, f.discount_value, f.applies_to, f.category,
-    f.medicine_id !== undefined ? (f.medicine_id || null) : before.medicine_id,
+    f.discount_type, f.discount_value, f.applies_to, category, medicineId,
     f.min_bill_amount, f.from_date, f.to_date, f.active, req.params.id);
   auditDiff(req, 'promotions', Number(req.params.id), before, f,
     ['name', 'branch_id', 'discount_type', 'discount_value', 'applies_to', 'category', 'medicine_id', 'min_bill_amount', 'from_date', 'to_date', 'active']);

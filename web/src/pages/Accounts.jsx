@@ -149,7 +149,7 @@ function CashClosing() {
     } catch (e) { toast(e.message, 'red'); }
   };
 
-  if (!d) return null;
+  if (!d) return <Card><span className="muted">Loading cash summary…</span></Card>;
   const diff = actual === '' ? null : Number(actual) - d.expected_cash;
 
   return (

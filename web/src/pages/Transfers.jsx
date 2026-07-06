@@ -72,7 +72,7 @@ function NewTransfer({ branches, onClose, onSaved }) {
   const { user } = useAuth();
   const { branchId } = useBranch();
   const toast = useToast();
-  const fromBranch = user.role === 'super_admin' ? (branchId || branches[0]?.id) : user.branch_id;
+  const [fromBranch, setFromBranch] = useState(user.role === 'super_admin' ? (branchId || branches[0]?.id) : user.branch_id);
   const [toBranch, setToBranch] = useState('');
   const [q, setQ] = useState('');
   const [found, setFound] = useState([]);
@@ -105,7 +105,8 @@ function NewTransfer({ branches, onClose, onSaved }) {
     }>
       <div className="form-row">
         <Field label="From branch">
-          <select value={fromBranch} disabled={user.role !== 'super_admin'} onChange={() => {}}>
+          <select value={fromBranch} disabled={user.role !== 'super_admin'}
+            onChange={e => { setFromBranch(Number(e.target.value)); setItems([]); setFound([]); setQ(''); }}>
             {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </Field>
@@ -139,7 +140,7 @@ function NewTransfer({ branches, onClose, onSaved }) {
         {
           label: 'Transfer qty', num: true, render: (r) => (
             <input type="number" min="1" max={r.max} className="input" style={{ width: 80, textAlign: 'right' }}
-              value={r.qty} onChange={e => setItems(items => items.map(i => i.batch_id === r.batch_id ? { ...i, qty: e.target.value } : i))} />
+              value={r.qty} onChange={e => setItems(items => items.map(i => i.batch_id === r.batch_id ? { ...i, qty: e.target.value === '' ? '' : Math.max(1, Math.min(Number(e.target.value), r.max)) } : i))} />
           ),
         },
         { label: '', render: r => <button className="x-btn" onClick={() => setItems(items => items.filter(i => i.batch_id !== r.batch_id))}>✕</button> },

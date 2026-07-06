@@ -27,11 +27,19 @@ export function exportCSV(filename, columns, rows) {
   URL.revokeObjectURL(a.href);
 }
 
-export function ExportBtn({ name, columns, rows }) {
+// fetchRows: optional async () => rows — fetches the FULL dataset on click
+// (pages shown on screen are often truncated); falls back to the given rows.
+export function ExportBtn({ name, columns, rows, fetchRows }) {
+  const [busy, setBusy] = useState(false);
+  const click = async () => {
+    if (!fetchRows) return exportCSV(name, columns, rows);
+    setBusy(true);
+    try { exportCSV(name, columns, await fetchRows()); } finally { setBusy(false); }
+  };
   return (
-    <button className="btn ghost sm" disabled={!rows?.length} title="Download as Excel/CSV"
-      onClick={() => exportCSV(name, columns, rows)}>
-      ⬇ Download
+    <button className="btn ghost sm" disabled={busy || (!fetchRows && !rows?.length)} title="Download as Excel/CSV"
+      onClick={click}>
+      {busy ? '⏳ Preparing…' : '⬇ Download'}
     </button>
   );
 }

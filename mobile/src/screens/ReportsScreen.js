@@ -1,19 +1,24 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { api, fmt } from '../api';
-import { useBranch } from '../../App';
+import { Linking } from 'react-native';
+import { api, fmt, BASE_URL, getAuthToken } from '../api';
+import { useAuth, useBranch, can } from '../../App';
 import { colors, shadow } from '../theme';
-import { Chips, BranchBar } from '../ui';
+import { Field, Chips, Btn, BranchBar } from '../ui';
 
 const cell = { paddingVertical: 6, paddingHorizontal: 8, fontSize: 12, color: colors.ink2 };
 
 export default function ReportsScreen() {
+  const { user } = useAuth();
   const { branchId } = useBranch();
   const [list, setList] = useState([]);
   const [key, setKey] = useState('sales');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [group, setGroup] = useState('bill'); // discounts report grouping
 
   useFocusEffect(useCallback(() => {
     api('/reports/list').then(d => setList(d.reports)).catch(() => {});
@@ -21,15 +26,35 @@ export default function ReportsScreen() {
 
   useFocusEffect(useCallback(() => {
     setLoading(true);
-    api(`/reports/${key}`, { params: { branch_id: branchId } })
+    api(`/reports/${key}`, { params: { branch_id: branchId, from, to, group: key === 'discounts' ? group : undefined } })
       .then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-  }, [key, branchId]));
+  }, [key, branchId, from, to, group]));
+
+  const exportUrl = format => {
+    const qs = Object.entries({ format, from, to, branch_id: branchId, group: key === 'discounts' ? group : '' })
+      .filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+    return `${BASE_URL}/api/reports/${key}/export?${qs}&token=${getAuthToken()}`;
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
       <BranchBar />
       <Chips options={list.map(r => ({ value: r.key, label: r.title.replace(/ Report$/, '') }))}
         value={key} onChange={setKey} />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flex: 1 }}><Field label="From" placeholder="YYYY-MM-DD" value={from} onChangeText={setFrom} /></View>
+        <View style={{ flex: 1 }}><Field label="To" placeholder="YYYY-MM-DD" value={to} onChangeText={setTo} /></View>
+      </View>
+      {key === 'discounts' && (
+        <Chips label="Group by" value={group} onChange={setGroup}
+          options={['bill', 'branch', 'user', 'customer', 'product'].map(g => ({ value: g, label: g }))} />
+      )}
+      {key !== 'profit' && can(user, 'reports.export') && (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={{ flex: 1 }}><Btn title="📄 PDF" color={colors.ink2} onPress={() => Linking.openURL(exportUrl('pdf'))} /></View>
+          <View style={{ flex: 1 }}><Btn title="📊 Excel" color={colors.green} onPress={() => Linking.openURL(exportUrl('xlsx'))} /></View>
+        </View>
+      )}
 
       {loading && <ActivityIndicator color={colors.brand} style={{ marginTop: 30 }} />}
 

@@ -4,9 +4,9 @@ import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../api';
 import { useAuth } from '../../App';
 import { colors, shadow } from '../theme';
-import { Field, Chips, Btn } from '../ui';
+import { Field, Chips, Btn, shareCsv } from '../ui';
 
-const blank = { name: '', email: '', phone: '', password: '', role: 'billing_staff', branch_id: null, extra_branches: [], active: 1 };
+const blank = { name: '', email: '', phone: '', password: '', role: 'billing_staff', branch_id: null, extra_branches: [], active: 1, max_discount_percent: '' };
 
 export default function AdminUsersScreen() {
   const { user: me } = useAuth();
@@ -33,12 +33,14 @@ export default function AdminUsersScreen() {
         await api(`/admin/users/${edit.id}`, { method: 'PUT', body: {
           name: edit.name, phone: edit.phone, role: edit.role, branch_id: edit.branch_id,
           active: edit.active, extra_branches: edit.extra_branches,
+          max_discount_percent: edit.max_discount_percent === '' ? null : Number(edit.max_discount_percent),
           ...(edit.password ? { password: edit.password } : {}),
         } });
       } else {
         await api('/admin/users', { method: 'POST', body: {
           name: edit.name, email: edit.email, phone: edit.phone, password: edit.password,
           role: edit.role, branch_id: edit.branch_id, extra_branches: edit.extra_branches,
+          max_discount_percent: edit.max_discount_percent === '' ? null : Number(edit.max_discount_percent),
         } });
       }
       setEdit(null); load();
@@ -60,12 +62,24 @@ export default function AdminUsersScreen() {
   const openEdit = u => setEdit({
     id: u.id, name: u.name, email: u.email, phone: u.phone || '', password: '',
     role: u.role, branch_id: u.branch_id, active: u.active,
+    max_discount_percent: u.max_discount_percent === null || u.max_discount_percent === undefined ? '' : String(u.max_discount_percent),
     extra_branches: (() => { try { return JSON.parse(u.extra_branches || '[]'); } catch { return []; } })(),
   });
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
-      <Btn title="＋ Add User" onPress={() => setEdit({ ...blank, branch_id: me.branch_id || branches[0]?.id || null })} />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flex: 1 }}>
+          <Btn title="＋ Add User" onPress={() => setEdit({ ...blank, branch_id: me.branch_id || branches[0]?.id || null })} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Btn title="⬇ Export CSV" color={colors.ink2} onPress={() => shareCsv('users.csv', [
+            { key: 'name', label: 'Name' }, { key: 'email', label: 'Email' }, { key: 'phone', label: 'Phone' },
+            { key: 'role', label: 'Role' }, { key: 'branch_name', label: 'Branch' },
+            { key: 'max_discount_percent', label: 'Max disc %' }, { key: 'active', label: 'Active' },
+          ], users)} />
+        </View>
+      </View>
       <FlatList
         data={users}
         keyExtractor={u => String(u.id)}
@@ -105,6 +119,8 @@ export default function AdminUsersScreen() {
                 value={edit.extra_branches} onChange={v => setEdit(e => ({ ...e, extra_branches: v }))}
                 options={branches.filter(b => b.id !== Number(edit.branch_id)).map(b => ({ value: b.id, label: b.name }))} />
             )}
+            <Field label="Max discount % without approval (blank = default)" keyboardType="numeric"
+              value={String(edit.max_discount_percent ?? '')} onChangeText={v => setEdit(e => ({ ...e, max_discount_percent: v }))} />
             {!!edit.id && (
               <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                 <Text style={{ fontWeight: '700', flex: 1 }}>Active</Text>

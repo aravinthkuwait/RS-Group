@@ -35,6 +35,7 @@ function Medicines() {
   const load = () => api('/inventory/medicines', { params: { q: dq, category, branch_id: branchId, page, limit: 25 } })
     .then(d => { setRows(d.medicines); setTotal(d.total); }).catch(e => toast(e.message, 'red'));
   useEffect(() => { load(); }, [dq, category, branchId, page]);
+  useEffect(() => { setPage(1); }, [branchId]);
   useEffect(() => { api('/admin/settings').then(d => setCats(d.settings.medicine_categories || [])); }, []);
 
   return (
@@ -47,7 +48,9 @@ function Medicines() {
         </select>
         <div className="spacer" />
         <span className="muted">{total} medicines</span>
-        <ExportBtn name="medicines" rows={rows} columns={[
+        <ExportBtn name="medicines" rows={rows}
+          fetchRows={async () => (await api('/inventory/medicines', { params: { q: dq, category, branch_id: branchId, limit: 100000 } })).medicines}
+          columns={[
           { key: 'name', label: 'Name' }, { key: 'generic_name', label: 'Generic' },
           { key: 'category', label: 'Category' }, { key: 'brand', label: 'Brand' },
           { key: 'barcode', label: 'Barcode' }, { key: 'gst_rate', label: 'GST %' },
@@ -234,11 +237,11 @@ function AdjustModal({ onClose, onSaved }) {
   const [reason, setReason] = useState('');
 
   useEffect(() => {
-    if (q.length < 2) return;
-    const t = setTimeout(() => api('/inventory/stock', { params: { q, branch_id: branchId || user.branch_id } })
+    if (q.length < 2) { setBatches([]); return; }
+    const t = setTimeout(() => api('/inventory/stock', { params: { q, branch_id: branchId || user.branch_id || '' } })
       .then(d => setBatches(d.stock)), 200);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, branchId]);
 
   const save = async () => {
     try {
@@ -252,7 +255,7 @@ function AdjustModal({ onClose, onSaved }) {
 
   return (
     <Modal title="Stock adjustment" onClose={onClose} footer={
-      <><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn green" onClick={save} disabled={!batchId || !change || !reason}>Save</button></>
+      <><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn green" onClick={save} disabled={!batchId || !Number(change) || !reason}>Save</button></>
     }>
       <Field label="Find batch (type medicine name)" value={q} onChange={e => setQ(e.target.value)} placeholder="e.g. Dolo" />
       {batches.length > 0 && (

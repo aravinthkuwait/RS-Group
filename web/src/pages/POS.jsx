@@ -161,7 +161,7 @@ export default function POS() {
           customer_id: customer?.id || undefined,
           customer_phone: customerPhone || undefined,
           customer_name: customerName || undefined,
-          discount: { type: totalDiscount > 0 || discType !== 'none' ? discType : 'none', value: Number(discValue) || 0, promo_id: promoId || null },
+          discount: { type: (discType === 'promo' && !promoId) ? 'none' : (totalDiscount > 0 || discType !== 'none' ? discType : 'none'), value: Number(discValue) || 0, promo_id: promoId || null },
           doctor_name: doctor,
           payment: { cash: Number(pay.cash) || 0, upi: Number(pay.upi) || 0, card: Number(pay.card) || 0, credit: Number(pay.credit) || 0 },
           hold, prescription_file: rx || undefined,

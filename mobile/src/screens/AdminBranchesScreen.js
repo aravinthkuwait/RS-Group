@@ -17,6 +17,17 @@ export default function AdminBranchesScreen() {
   }, []);
   useFocusEffect(load);
 
+  const del = () => Alert.alert('Delete branch?', `${edit.name} will be removed (or deactivated if it has data).`, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Delete', style: 'destructive', onPress: async () => {
+      try {
+        const d = await api(`/admin/branches/${edit.id}`, { method: 'DELETE' });
+        if (d.message) Alert.alert('Done', d.message);
+        setEdit(null); load();
+      } catch (e) { Alert.alert('Could not delete', e.message); }
+    } },
+  ]);
+
   const save = async () => {
     if (!edit.name || (!edit.id && !edit.code)) return Alert.alert('Missing details', 'Branch code and name are required.');
     setBusy(true);
@@ -73,6 +84,7 @@ export default function AdminBranchesScreen() {
               </View>
             )}
             <Btn title={busy ? 'Saving…' : '💾 Save Branch'} color={colors.green} onPress={save} disabled={busy} />
+            {!!edit.id && <Btn title="🗑 Delete Branch" color={colors.red} onPress={del} />}
             <Btn title="Cancel" color={colors.ink3} onPress={() => setEdit(null)} />
           </ScrollView>
         )}

@@ -329,6 +329,17 @@ router.get('/returns/list', requirePermission('billing.view'), wrap(async (req, 
 }));
 
 // ---------------- Invoice PDF + share ----------------
+// Serve the uploaded prescription (stored as a base64 data URL) — browsers
+// block top-level data: navigation and Android can't open data: URLs.
+router.get('/:id(\\d+)/prescription-file', requirePermission('billing.view', 'billing.create'), wrap(async (req, res) => {
+  const row = await get('SELECT prescription_file FROM sales WHERE id = ?', req.params.id);
+  const m = String(row?.prescription_file || '').match(/^data:([^;]+);base64,(.+)$/s);
+  if (!m) return res.status(404).json({ error: 'No prescription attached' });
+  res.setHeader('Content-Type', m[1]);
+  res.setHeader('Content-Disposition', `inline; filename="sale-${req.params.id}-prescription"`);
+  res.send(Buffer.from(m[2], 'base64'));
+}));
+
 router.get('/:id(\\d+)/pdf', requirePermission('billing.view', 'billing.create'), wrap(async (req, res) => {
   const sale = await saleWithDetails(req.params.id);
   if (!sale) return res.status(404).json({ error: 'Bill not found' });

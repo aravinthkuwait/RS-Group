@@ -450,22 +450,23 @@ router.get('/profit', requirePermission('reports.view'), wrap(async (req, res) =
 router.get('/:key(sales|stock|expiry|purchases|gst|products|staff|discounts|brands|generics|lowstock)', requirePermission('reports.view'), wrap(async (req, res) => {
   const r = REPORTS[req.params.key];
   const data = await r.build(req);
-  res.json({ title: r.title, columns: r.columns, rows: data.rows, from: data.from, to: data.to, summary: r.summary(data) });
+  res.json({ title: r.title, columns: columnsFor(r, req), rows: data.rows, from: data.from, to: data.to, summary: r.summary(data) });
 }));
 
 router.get('/:key(sales|stock|expiry|purchases|gst|products|staff|discounts|brands|generics|lowstock)/export', requirePermission('reports.export'), wrap(async (req, res) => {
   const r = REPORTS[req.params.key];
+  const cols = columnsFor(r, req);
   const data = await r.build(req);
   const branchId = scopeBranch(req);
   const branchName = branchId ? (await get('SELECT name FROM branches WHERE id = ?', branchId))?.name : 'All Branches';
   const period = data.from ? `Period: ${data.from} to ${data.to}` : `As on ${today()}`;
 
   if (req.query.format === 'xlsx') {
-    const header = r.columns.map(c => c.label);
-    const body = data.rows.map(row => r.columns.map(c => row[c.key]));
+    const header = cols.map(c => c.label);
+    const body = data.rows.map(row => cols.map(c => row[c.key]));
     const summaryRows = r.summary(data).map(([k, v]) => [k, String(v)]);
     const ws = XLSX.utils.aoa_to_sheet([[r.title], [branchName + ' — ' + period], [], header, ...body, [], ...summaryRows]);
-    ws['!cols'] = r.columns.map(() => ({ wch: 18 }));
+    ws['!cols'] = cols.map(() => ({ wch: 18 }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, r.title.slice(0, 30));
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
@@ -473,7 +474,7 @@ router.get('/:key(sales|stock|expiry|purchases|gst|products|staff|discounts|bran
     res.setHeader('Content-Disposition', `attachment; filename="${req.params.key}-report.xlsx"`);
     return res.send(buf);
   }
-  await reportPdf(res, { title: r.title, branchName, period, columns: r.columns, rows: data.rows, summary: r.summary(data), printedBy: req.user.name });
+  await reportPdf(res, { title: r.title, branchName, period, columns: cols, rows: data.rows, summary: r.summary(data), printedBy: req.user.name });
 }));
 
 export default router;
