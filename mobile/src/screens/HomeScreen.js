@@ -58,6 +58,24 @@ function ConnectionCard() {
   );
 }
 
+function Section({ title, children }) {
+  return (
+    <View style={[{ backgroundColor: '#fff', borderRadius: 12, padding: 16 }, shadow]}>
+      <Text style={{ fontWeight: '700', marginBottom: 10 }}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+function Row({ l, r, bold, red }) {
+  return (
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+      <Text style={{ color: colors.ink2, flex: 1, fontWeight: bold ? '800' : '400' }} numberOfLines={1}>{l}</Text>
+      <Text style={{ fontWeight: '700', color: red ? colors.red : colors.ink }}>{r}</Text>
+    </View>
+  );
+}
+
 function StatCard({ label, value, sub, accent }) {
   return (
     <View style={[{ backgroundColor: '#fff', borderRadius: 12, padding: 14, flex: 1, minWidth: '46%', borderTopWidth: 3, borderTopColor: accent }, shadow]}>
@@ -111,8 +129,14 @@ export default function HomeScreen({ navigation }) {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           <StatCard label="Today's sales" value={fmt(d.today.total)} sub={`${d.today.bills} bills`} accent={colors.brand} />
           <StatCard label="This month" value={fmt(d.month.total)} sub={`${d.month.bills} bills`} accent={colors.green} />
+          <StatCard label="Est. profit (month)" value={fmt(d.month.profit)} sub={`${fmt(d.month_profit_net)} after expenses`} accent={colors.green} />
+          <StatCard label="Stock value" value={fmt(d.stock_value.cost)} sub={`retail ${fmt(d.stock_value.retail)}`} accent={colors.brand} />
           <StatCard label="Low stock" value={String(d.low_stock_count)} sub="items to reorder" accent={colors.orange} />
           <StatCard label="Expiry risk 90d" value={fmt(d.expiry_risk.value)} sub={`${d.expiry_risk.batches} batches`} accent={colors.red} />
+          <StatCard label="Expiring 30d" value={fmt(d.expiring_30.value)} sub={`${d.expiring_30.batches} batches`} accent={colors.red} />
+          <StatCard label="Expiring 60d" value={fmt(d.expiring_60.value)} sub={`${d.expiring_60.batches} batches`} accent={colors.orange} />
+          <StatCard label="Expired stock" value={fmt(d.expired.value)} sub={`${d.expired.batches} batches`} accent={colors.red} />
+          <StatCard label="Batch stock" value={String(d.batch_summary.batches)} sub={`${d.batch_summary.units} units · ${d.batch_summary.medicines} medicines`} accent={colors.brand} />
         </View>
       )}
 
@@ -132,15 +156,60 @@ export default function HomeScreen({ navigation }) {
       </View>
 
       {d && can(user, 'dashboard.view') && (
-        <View style={[{ backgroundColor: '#fff', borderRadius: 12, padding: 16 }, shadow]}>
-          <Text style={{ fontWeight: '700', marginBottom: 10 }}>Best sellers (30 days)</Text>
-          {d.best_sellers.slice(0, 5).map(b => (
-            <View key={b.name} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-              <Text style={{ color: colors.ink2, flex: 1 }} numberOfLines={1}>{b.name}</Text>
-              <Text style={{ fontWeight: '700' }}>{b.qty} sold</Text>
-            </View>
-          ))}
-        </View>
+        <>
+          <Section title="Payment collection (today)">
+            <Row l="Cash" r={fmt(d.today.cash)} />
+            <Row l="UPI" r={fmt(d.today.upi)} />
+            <Row l="Card" r={fmt(d.today.card)} />
+            <Row l="Credit (unpaid)" r={fmt(d.today.credit)} />
+            <Row l="Customer dues" r={fmt(d.customer_dues)} red={d.customer_dues > 0} />
+            <Row l="Supplier dues" r={fmt(d.supplier_dues)} red={d.supplier_dues > 0} />
+          </Section>
+
+          {(d.monthly || []).length > 0 && (
+            <Section title="Monthly sales vs profit (6 months)">
+              {d.monthly.map(m => (
+                <Row key={m.month} l={m.month} r={`${fmt(m.total)} · profit ${fmt(m.profit)}`} />
+              ))}
+            </Section>
+          )}
+
+          {(d.branch_wise || []).length > 1 && (
+            <Section title="Branch-wise sales (this month)">
+              {d.branch_wise.map(b => <Row key={b.code} l={`${b.code} · ${b.name}`} r={`${fmt(b.total)} · ${b.bills} bills`} />)}
+            </Section>
+          )}
+
+          {(d.stock_by_branch || []).length > 1 && (
+            <Section title="Stock value by branch">
+              {d.stock_by_branch.map(b => <Row key={b.code} l={`${b.code} · ${b.name}`} r={fmt(b.value)} />)}
+            </Section>
+          )}
+
+          <Section title="Best sellers (30 days)">
+            {d.best_sellers.slice(0, 8).map(b => (
+              <Row key={b.name} l={b.name} r={`${b.qty} sold · ${fmt(b.amount)}`} />
+            ))}
+          </Section>
+
+          {(d.staff_performance || []).length > 0 && (
+            <Section title="Staff performance (this month)">
+              {d.staff_performance.map(x => <Row key={x.name} l={x.name} r={`${fmt(x.total)} · ${x.bills} bills`} />)}
+            </Section>
+          )}
+
+          {(d.top_brands || []).length > 0 && (
+            <Section title="Brand-wise sales (30 days)">
+              {d.top_brands.map(x => <Row key={x.name} l={x.name} r={`${fmt(x.amount)} · ${x.qty} qty`} />)}
+            </Section>
+          )}
+
+          {(d.top_generics || []).length > 0 && (
+            <Section title="Generic-wise sales (30 days)">
+              {d.top_generics.map(x => <Row key={x.name} l={x.name} r={`${fmt(x.amount)} · ${x.qty} qty`} />)}
+            </Section>
+          )}
+        </>
       )}
     </ScrollView>
   );

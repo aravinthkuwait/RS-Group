@@ -7,17 +7,24 @@ import { colors, shadow } from '../theme';
 export default function MoreScreen({ navigation }) {
   const { user, logout } = useAuth();
   const items = [
-    can(user, 'inventory.view') && { t: '⏳ Expiry Check', nav: 'Expiry' },
+    can(user, 'billing.view', 'billing.create') && { t: '🧾 Sales & Bills', nav: 'Sales' },
+    can(user, 'inventory.view') && { t: '⚠️ Stock Alerts', nav: 'Expiry' },
+    can(user, 'inventory.view') && { t: '💊 Medicines', nav: 'Medicines' },
+    can(user, 'inventory.transfer', 'inventory.view') && { t: '🔁 Stock Transfers', nav: 'Transfers' },
+    can(user, 'discounts.manage') && { t: '🎁 Discounts & Offers', nav: 'Offers' },
+    can(user, 'expenses.view', 'accounts.manage') && { t: '💵 Accounts & Expenses', nav: 'Accounts' },
     can(user, 'customers.view') && { t: '👥 Customers', nav: 'Customers' },
     can(user, 'reports.view') && { t: '📑 Reports', nav: 'Reports' },
     can(user, 'purchases.view') && { t: '📥 Purchases', nav: 'Purchases' },
     can(user, 'delivery.view') && { t: '🛵 Deliveries', nav: 'Deliveries' },
     can(user, 'staff.manage') && { t: '🧑‍⚕️ Users & Staff', nav: 'AdminUsers' },
     can(user, 'branches.manage') && { t: '🏬 Branches', nav: 'AdminBranches' },
+    can(user, 'staff.manage') && { t: '📣 Announcements', nav: 'Announce' },
     user.role === 'super_admin' && { t: '💰 Usage & Cost', nav: 'Usage' },
     { t: '📋 My Tasks', nav: 'Tasks' },
     { t: '🕐 Attendance Check-in/out', nav: 'Attendance' },
-    { t: '🔔 Notifications', nav: 'Notifications' },
+    { t: '🔔 Notifications & Stock Updates', nav: 'Notifications' },
+    { t: '⚙️ Settings', nav: 'Settings' },
     { t: '📖 User Manual (PDF)', open: `${BASE_URL}/api/manual?token=` },
   ].filter(Boolean);
 

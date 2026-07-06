@@ -36,7 +36,19 @@ export default function StockUpdates() {
   return (
     <Card title={`Stock update notifications (${total})`} actions={
       <>
-        <ExportBtn name="stock-updates" columns={[
+        <ExportBtn name="stock-updates"
+          fetchRows={async () => {
+            const d = await api('/staff/stock-notifications', { params: { page: 1, limit: 100000, branch_id: branchId } });
+            return d.notifications.flatMap(n => {
+              const x = parse(n);
+              return (x.items || []).map(it => ({
+                date: n.created_at, branch: x.branch_name, item: it.name, batch: it.batch_no,
+                qty_added: it.qty_added, new_qty: it.new_qty, updated_by: x.updated_by,
+                status: n.read ? 'Read' : 'Unread',
+              }));
+            });
+          }}
+          columns={[
           { key: 'date', label: 'Date' }, { key: 'branch', label: 'Branch' }, { key: 'item', label: 'Item' },
           { key: 'batch', label: 'Batch' }, { key: 'qty_added', label: 'Qty Added' },
           { key: 'new_qty', label: 'Updated Stock' }, { key: 'updated_by', label: 'Updated By' },

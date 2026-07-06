@@ -2,13 +2,18 @@ import React, { useCallback, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { api, fmt } from '../api';
+import { useAuth, useBranch, can } from '../../App';
+import { BranchBar, Btn, shareCsv } from '../ui';
 import { colors, shadow } from '../theme';
 
 export default function DeliveriesScreen() {
+  const { user } = useAuth();
+  const { branchId } = useBranch();
+  const canUpdate = can(user, 'delivery.update');
   const [rows, setRows] = useState([]);
   const load = useCallback(() => {
-    api('/sales/deliveries/list').then(d => setRows(d.deliveries)).catch(() => {});
-  }, []);
+    api('/sales/deliveries/list', { params: { branch_id: branchId } }).then(d => setRows(d.deliveries)).catch(() => {});
+  }, [branchId]);
   useFocusEffect(load);
 
   const update = async (item, status) => {
@@ -18,8 +23,16 @@ export default function DeliveriesScreen() {
     } catch (e) { Alert.alert('Error', e.message); }
   };
 
+  const exportCsv = () => shareCsv('deliveries.csv', [
+    { key: 'invoice_no', label: 'Invoice' }, { key: 'customer_name', label: 'Customer' },
+    { key: 'customer_phone', label: 'Phone' }, { key: 'delivery_address', label: 'Address' },
+    { key: 'total', label: 'Amount' }, { key: 'delivery_status', label: 'Status' },
+  ], rows);
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
+      <BranchBar />
+      {rows.length > 0 && <Btn title="⬇ Export CSV" color={colors.ink2} onPress={exportCsv} />}
       <FlatList
         data={rows}
         keyExtractor={r => String(r.id)}
@@ -37,7 +50,7 @@ export default function DeliveriesScreen() {
             <Text style={{ color: colors.orange, fontWeight: '700', fontSize: 12, marginVertical: 4 }}>
               {String(item.delivery_status).replace(/_/g, ' ').toUpperCase()}
             </Text>
-            {item.delivery_status !== 'delivered' && (
+            {canUpdate && item.delivery_status !== 'delivered' && (
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 {item.delivery_status === 'pending' && (
                   <TouchableOpacity onPress={() => update(item, 'out_for_delivery')} style={s.btn(colors.brand)}>

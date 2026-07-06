@@ -4,7 +4,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, fmt } from '../api';
 import { colors, shadow } from '../theme';
-import { Field, Btn } from '../ui';
+import { Field, Chips, Btn } from '../ui';
 
 const DRAFT_KEY = 'rsg_purchase_draft';
 const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -45,7 +45,7 @@ function PickerField({ label, value, onChange, endpoint, listKey }) {
                 <TouchableOpacity key={o.name} onPress={() => { onChange(o.name); setOpen(false); }}
                   style={{ padding: 12, borderBottomWidth: 1, borderColor: colors.line }}>
                   <Text style={{ fontWeight: '600' }}>{o.name}</Text>
-                  {!!o.brands && <Text style={{ color: colors.ink3, fontSize: 12 }}>{o.brands}</Text>}
+                  {!!(o.brands || o.medicines) && <Text style={{ color: colors.ink3, fontSize: 12 }}>{o.brands || o.medicines}</Text>}
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -64,6 +64,10 @@ export default function PurchaseEntryScreen({ route, navigation }) {
   const [invoiceNo, setInvoiceNo] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(todayStr());
   const [paidAmount, setPaidAmount] = useState('');
+  const [paidMethod, setPaidMethod] = useState('bank');
+  const [invoiceFile, setInvoiceFile] = useState(null); // base64 data URL of supplier invoice photo
+  const [photoMode, setPhotoMode] = useState(false);    // camera modal captures photo instead of barcode
+  const camRef = useRef(null);
   const [items, setItems] = useState([]);
   const [editIdx, setEditIdx] = useState(null); // index being edited, -1 = new
   const [draft, setDraft] = useState(blankItem());
@@ -85,6 +89,7 @@ export default function PurchaseEntryScreen({ route, navigation }) {
           if (d.items?.length || d.invoiceNo) {
             setSupplierId(d.supplierId || ''); setInvoiceNo(d.invoiceNo || '');
             setInvoiceDate(d.invoiceDate || todayStr()); setPaidAmount(d.paidAmount || '');
+            setPaidMethod(d.paidMethod || 'bank'); setInvoiceFile(d.invoiceFile || null);
             setItems(d.items || []);
           }
         } catch {}
@@ -96,8 +101,8 @@ export default function PurchaseEntryScreen({ route, navigation }) {
   // Autosave draft whenever the entry changes
   useEffect(() => {
     if (!restored.current) return;
-    AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ supplierId, invoiceNo, invoiceDate, paidAmount, items })).catch(() => {});
-  }, [supplierId, invoiceNo, invoiceDate, paidAmount, items]);
+    AsyncStorage.setItem(DRAFT_KEY, JSON.stringify({ supplierId, invoiceNo, invoiceDate, paidAmount, paidMethod, invoiceFile, items })).catch(() => {});
+  }, [supplierId, invoiceNo, invoiceDate, paidAmount, paidMethod, invoiceFile, items]);
 
   const total = items.reduce((a, it) => a + (Number(it.qty) || 0) * (Number(it.purchase_price) || 0), 0);
   const supplierName = suppliers.find(s => s.id === Number(supplierId))?.name;
@@ -113,14 +118,25 @@ export default function PurchaseEntryScreen({ route, navigation }) {
   };
 
   const onScan = ({ data }) => {
-    if (!scanning) return;
+    if (!scanning || photoMode) return;
     setScanning(false);
     setDraft(x => ({ ...x, name: data }));
     lookupMedicine(data);
   };
   const startScan = async () => {
     if (!permission?.granted) { const r = await requestPermission(); if (!r.granted) return Alert.alert('Camera permission needed'); }
-    setScanning(true);
+    setPhotoMode(false); setScanning(true);
+  };
+  const startInvoicePhoto = async () => {
+    if (!permission?.granted) { const r = await requestPermission(); if (!r.granted) return Alert.alert('Camera permission needed'); }
+    setPhotoMode(true); setScanning(true);
+  };
+  const snapInvoice = async () => {
+    try {
+      const photo = await camRef.current?.takePictureAsync({ base64: true, quality: 0.4 });
+      if (photo?.base64) setInvoiceFile(`data:image/jpeg;base64,${photo.base64}`);
+    } catch { Alert.alert('Could not capture photo'); }
+    setScanning(false); setPhotoMode(false);
   };
 
   const saveItem = () => {
@@ -146,6 +162,7 @@ export default function PurchaseEntryScreen({ route, navigation }) {
         body: {
           branch_id: branchId, supplier_id: Number(supplierId), invoice_no: invoiceNo.trim(),
           invoice_date: invoiceDate, paid_amount: Number(paidAmount) || 0,
+          paid_method: paidMethod, invoice_file: invoiceFile || undefined,
           items: items.map(it => ({
             medicine_id: it.medicine_id || undefined, medicine_name: it.name.trim(),
             brand: it.brand.trim(), generic_name: it.generic_name.trim(), strip_count: Number(it.strip_count) || 1,
@@ -174,6 +191,21 @@ export default function PurchaseEntryScreen({ route, navigation }) {
       <Field label="Supplier invoice no *" value={invoiceNo} onChangeText={setInvoiceNo} />
       <Field label="Invoice date (YYYY-MM-DD)" value={invoiceDate} onChangeText={setInvoiceDate} />
       <Field label="Paid now (₹, 0 = full credit)" keyboardType="numeric" value={paidAmount} onChangeText={setPaidAmount} />
+      <Chips label="Paid via" value={paidMethod} onChange={setPaidMethod}
+        options={['bank', 'cash', 'upi', 'cheque'].map(m => ({ value: m, label: m.toUpperCase() }))} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+        <TouchableOpacity onPress={startInvoicePhoto}
+          style={{ backgroundColor: colors.brandLight, borderRadius: 8, padding: 10, flex: 1 }}>
+          <Text style={{ color: colors.brand, fontWeight: '700' }}>
+            {invoiceFile ? '📎 Invoice photo attached — retake' : '📷 Attach supplier invoice photo'}
+          </Text>
+        </TouchableOpacity>
+        {!!invoiceFile && (
+          <TouchableOpacity onPress={() => setInvoiceFile(null)} style={{ padding: 10 }}>
+            <Text style={{ color: colors.red, fontWeight: '800' }}>✕</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 6 }}>
         <Text style={{ flex: 1, fontWeight: '800', fontSize: 15 }}>Items ({items.length})</Text>
@@ -254,9 +286,14 @@ export default function PurchaseEntryScreen({ route, navigation }) {
 
       <Modal visible={scanning} animationType="slide">
         <View style={{ flex: 1, backgroundColor: '#000' }}>
-          <CameraView style={{ flex: 1 }} onBarcodeScanned={onScan}
+          <CameraView ref={camRef} style={{ flex: 1 }} onBarcodeScanned={photoMode ? undefined : onScan}
             barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39', 'qr'] }} />
-          <TouchableOpacity onPress={() => setScanning(false)} style={{ backgroundColor: colors.red, padding: 16 }}>
+          {photoMode && (
+            <TouchableOpacity onPress={snapInvoice} style={{ backgroundColor: colors.green, padding: 16 }}>
+              <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>📸 Capture invoice</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={() => { setScanning(false); setPhotoMode(false); }} style={{ backgroundColor: colors.red, padding: 16 }}>
             <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>Cancel</Text>
           </TouchableOpacity>
         </View>

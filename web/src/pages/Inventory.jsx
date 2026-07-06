@@ -47,7 +47,9 @@ function Medicines() {
         </select>
         <div className="spacer" />
         <span className="muted">{total} medicines</span>
-        <ExportBtn name="medicines" rows={rows} columns={[
+        <ExportBtn name="medicines" rows={rows}
+          fetchRows={async () => (await api('/inventory/medicines', { params: { q: dq, category, branch_id: branchId, limit: 100000 } })).medicines}
+          columns={[
           { key: 'name', label: 'Name' }, { key: 'generic_name', label: 'Generic' },
           { key: 'category', label: 'Category' }, { key: 'brand', label: 'Brand' },
           { key: 'barcode', label: 'Barcode' }, { key: 'gst_rate', label: 'GST %' },
@@ -235,7 +237,7 @@ function AdjustModal({ onClose, onSaved }) {
 
   useEffect(() => {
     if (q.length < 2) return;
-    const t = setTimeout(() => api('/inventory/stock', { params: { q, branch_id: branchId || user.branch_id } })
+    const t = setTimeout(() => api('/inventory/stock', { params: { q, branch_id: branchId || user.branch_id || '' } })
       .then(d => setBatches(d.stock)), 200);
     return () => clearTimeout(t);
   }, [q]);

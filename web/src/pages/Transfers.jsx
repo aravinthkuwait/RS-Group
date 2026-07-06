@@ -72,7 +72,7 @@ function NewTransfer({ branches, onClose, onSaved }) {
   const { user } = useAuth();
   const { branchId } = useBranch();
   const toast = useToast();
-  const fromBranch = user.role === 'super_admin' ? (branchId || branches[0]?.id) : user.branch_id;
+  const [fromBranch, setFromBranch] = useState(user.role === 'super_admin' ? (branchId || branches[0]?.id) : user.branch_id);
   const [toBranch, setToBranch] = useState('');
   const [q, setQ] = useState('');
   const [found, setFound] = useState([]);
@@ -105,7 +105,8 @@ function NewTransfer({ branches, onClose, onSaved }) {
     }>
       <div className="form-row">
         <Field label="From branch">
-          <select value={fromBranch} disabled={user.role !== 'super_admin'} onChange={() => {}}>
+          <select value={fromBranch} disabled={user.role !== 'super_admin'}
+            onChange={e => { setFromBranch(Number(e.target.value)); setItems([]); setFound([]); setQ(''); }}>
             {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </Field>
