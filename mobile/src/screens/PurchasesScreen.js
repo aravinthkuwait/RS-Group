@@ -71,7 +71,7 @@ function InvoicesTab({ navigation, activeBranch }) {
     } },
   ]);
 
-  const openInvoiceFile = (file) => Linking.openURL(file)
+  const openInvoiceFile = (purchaseId) => Linking.openURL(`${BASE_URL}/api/purchases/${purchaseId}/invoice-file?token=${getAuthToken()}`)
     .catch(() => Alert.alert('Cannot open file', 'The attached invoice file cannot be opened on this device.'));
 
   return (
@@ -115,7 +115,7 @@ function InvoicesTab({ navigation, activeBranch }) {
                 ? <Image source={{ uri: view.invoice_file }} resizeMode="contain"
                     style={{ width: '100%', height: 220, borderRadius: 10, marginBottom: 10, backgroundColor: '#fff' }} />
                 : (
-                  <TouchableOpacity onPress={() => openInvoiceFile(view.invoice_file)} style={{ marginBottom: 10 }}>
+                  <TouchableOpacity onPress={() => openInvoiceFile(view.id)} style={{ marginBottom: 10 }}>
                     <Text style={{ color: colors.brand, fontWeight: '700' }}>📎 View uploaded supplier invoice</Text>
                   </TouchableOpacity>
                 )

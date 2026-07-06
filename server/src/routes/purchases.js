@@ -95,6 +95,18 @@ router.get('/:id(\\d+)', requirePermission('purchases.view'), wrap(async (req, r
   res.json({ purchase: p });
 }));
 
+// Serve the uploaded supplier-invoice file (stored as a base64 data URL).
+// Browsers block top-level data: navigation and Android can't Linking.openURL
+// a data: URL, so both clients link here instead.
+router.get('/:id(\\d+)/invoice-file', requirePermission('purchases.view'), wrap(async (req, res) => {
+  const p = await get('SELECT invoice_file FROM purchases WHERE id = ?', req.params.id);
+  const m = String(p?.invoice_file || '').match(/^data:([^;]+);base64,(.+)$/s);
+  if (!m) return res.status(404).json({ error: 'No invoice file attached' });
+  res.setHeader('Content-Type', m[1]);
+  res.setHeader('Content-Disposition', `inline; filename="purchase-${req.params.id}-invoice"`);
+  res.send(Buffer.from(m[2], 'base64'));
+}));
+
 // Accept expiry as MM/YYYY (mobile) or YYYY-MM-DD — normalised to the last
 // day of the month so batch tracking always has a full date.
 function normalizeExpiry(v) {

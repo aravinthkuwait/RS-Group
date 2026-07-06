@@ -57,7 +57,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (user) api('/admin/branches').then(d => setBranches(d.branches)).catch(() => {});
+    if (user) api('/admin/branches').then(d => setBranches(d.branches.filter(b => b.active))).catch(() => {});
   }, [user]);
 
   const login = (data) => { setToken(data.token); setUser(data.user); };

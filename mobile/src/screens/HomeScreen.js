@@ -145,8 +145,8 @@ export default function HomeScreen({ navigation }) {
           can(user, 'inventory.view') && { t: '⏳ Expiry Check', nav: 'Expiry' },
           can(user, 'customers.view') && { t: '👥 Customers', nav: 'Customers' },
           can(user, 'delivery.view') && { t: '🛵 Deliveries', nav: 'Deliveries' },
-          { t: '📋 My Tasks', nav: 'Tasks' },
-          { t: '🕐 Attendance', nav: 'Attendance' },
+          can(user, 'tasks.view') && { t: '📋 My Tasks', nav: 'Tasks' },
+          can(user, 'attendance.self') && { t: '🕐 Attendance', nav: 'Attendance' },
         ].filter(Boolean).map(x => (
           <TouchableOpacity key={x.t} onPress={() => navigation.navigate(x.nav)}
             style={[{ backgroundColor: '#fff', borderRadius: 12, padding: 16, flex: 1, minWidth: '46%' }, shadow]}>

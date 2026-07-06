@@ -16,8 +16,10 @@ export default function NotificationsScreen() {
   const load = useCallback(() => {
     if (view === 'stock') {
       // Dedicated stock-update history endpoint (paginated), same as web Stock Updates page.
-      api('/staff/stock-notifications', { params: { page, limit: 50, branch_id: branchId } })
-        .then(d => { setRows(p => page > 1 ? [...p, ...d.notifications] : d.notifications); setTotal(d.total); })
+      // Fetch page 1..N in one request and REPLACE rows — refocus/mark-all-read
+      // re-runs load, and appending would duplicate already-loaded pages.
+      api('/staff/stock-notifications', { params: { page: 1, limit: 50 * page, branch_id: branchId } })
+        .then(d => { setRows(d.notifications); setTotal(d.total); })
         .catch(() => {});
       return;
     }

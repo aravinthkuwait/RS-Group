@@ -110,6 +110,7 @@ export default function CustomersScreen() {
           <FlatList
             data={rows}
             keyExtractor={r => String(r.id)}
+            ListEmptyComponent={<Text style={{ textAlign: 'center', color: colors.ink3, marginTop: 30 }}>No customers found</Text>}
             renderItem={({ item }) => (
               <TouchableOpacity onPress={() => openProfile(item)}
                 style={[{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8 }, shadow]}>

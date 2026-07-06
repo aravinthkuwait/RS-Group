@@ -140,7 +140,7 @@ function NewTransfer({ branches, onClose, onSaved }) {
         {
           label: 'Transfer qty', num: true, render: (r) => (
             <input type="number" min="1" max={r.max} className="input" style={{ width: 80, textAlign: 'right' }}
-              value={r.qty} onChange={e => setItems(items => items.map(i => i.batch_id === r.batch_id ? { ...i, qty: e.target.value } : i))} />
+              value={r.qty} onChange={e => setItems(items => items.map(i => i.batch_id === r.batch_id ? { ...i, qty: e.target.value === '' ? '' : Math.max(1, Math.min(Number(e.target.value), r.max)) } : i))} />
           ),
         },
         { label: '', render: r => <button className="x-btn" onClick={() => setItems(items => items.filter(i => i.batch_id !== r.batch_id))}>✕</button> },

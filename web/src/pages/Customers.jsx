@@ -108,7 +108,7 @@ export default function Customers() {
           <h4 style={{ margin: '8px 0' }}>Purchase history</h4>
           <Table columns={[
             { key: 'invoice_no', label: 'Invoice' },
-            { key: 'created_at', label: 'Date' },
+            { key: 'created_at', label: 'Date', render: r => String(r.created_at || '').slice(0, 10) },
             { key: 'branch_name', label: 'Branch' },
             { key: 'total', label: 'Total', num: true, render: r => fmt(r.total) },
             { key: 'credit_amount', label: 'On credit', num: true, render: r => r.credit_amount ? fmt(r.credit_amount) : '' },

@@ -237,7 +237,7 @@ export default function BillingScreen() {
           customer_id: customer?.id || undefined,
           // Only send a phone when it really is one — never store a name as a phone
           customer_phone: customer ? undefined : (looksLikePhone(typed) ? typed : undefined),
-          discount: { type: totalDiscount > 0 || discType !== 'none' ? discType : 'none', value: Number(discValue) || 0, promo_id: promoId },
+          discount: { type: (discType === 'promo' && !promoId) ? 'none' : (totalDiscount > 0 || discType !== 'none' ? discType : 'none'), value: Number(discValue) || 0, promo_id: promoId },
           doctor_name: doctor,
           payment: { cash: Number(pay.cash) || 0, upi: Number(pay.upi) || 0, card: Number(pay.card) || 0, credit: Number(pay.credit) || 0 },
           hold, prescription_file: rx || undefined,

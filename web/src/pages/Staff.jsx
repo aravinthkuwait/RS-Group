@@ -359,7 +359,7 @@ function Announce() {
         <Field label="Only role (optional)">
           <select value={f.role} onChange={set('role')}>
             <option value="">All roles</option>
-            {['branch_admin', 'branch_manager', 'billing_staff', 'inventory_staff', 'accountant', 'delivery_staff'].map(r => (
+            {['branch_admin', 'branch_manager', 'pharmacist', 'billing_staff', 'inventory_staff', 'accountant', 'delivery_staff'].map(r => (
               <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>
             ))}
           </select>

@@ -5,7 +5,7 @@ import { useAuth, useBranch } from '../../App';
 import { Field, Chips, Btn } from '../ui';
 import { colors } from '../theme';
 
-const ROLES = ['branch_admin', 'branch_manager', 'billing_staff', 'inventory_staff', 'accountant', 'delivery_staff'];
+const ROLES = ['branch_admin', 'branch_manager', 'pharmacist', 'billing_staff', 'inventory_staff', 'accountant', 'delivery_staff'];
 
 // Broadcast an announcement to staff — parity with web Staff → Announcements.
 export default function AnnounceScreen() {

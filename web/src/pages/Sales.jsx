@@ -92,7 +92,7 @@ export default function Sales() {
           {view.doctor_name && <div className="muted" style={{ marginBottom: 8 }}>Doctor: {view.doctor_name}</div>}
           {view.prescription_file && (
             <div style={{ marginBottom: 10 }}>
-              <a href={view.prescription_file} target="_blank" rel="noreferrer">📎 View uploaded prescription</a>
+              <a href={fileUrl(`/sales/${view.id}/prescription-file`)} target="_blank" rel="noreferrer">📎 View uploaded prescription</a>
             </div>
           )}
           <Table
@@ -169,7 +169,7 @@ function ReturnModal({ sale, onClose, onDone }) {
           {
             label: 'Return qty', num: true, render: r => (
               <input type="number" min="0" max={r.qty - r.returned_qty} className="input" style={{ width: 80, textAlign: 'right' }}
-                value={qty[r.id] || ''} onChange={e => setQtys(q => ({ ...q, [r.id]: e.target.value }))} />
+                value={qty[r.id] || ''} onChange={e => setQtys(q => ({ ...q, [r.id]: e.target.value === '' ? '' : Math.max(0, Math.min(Number(e.target.value), r.qty - r.returned_qty)) }))} />
             ),
           },
           { label: 'Price', num: true, render: r => fmt(r.price) },

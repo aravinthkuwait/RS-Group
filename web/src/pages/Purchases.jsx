@@ -89,7 +89,7 @@ function PurchaseList() {
             <button className="btn ghost" onClick={() => setView(null)}>Close</button>
           </>
         }>
-          {view.invoice_file && <div style={{ marginBottom: 10 }}><a href={view.invoice_file} target="_blank" rel="noreferrer">📎 View uploaded supplier invoice</a></div>}
+          {view.invoice_file && <div style={{ marginBottom: 10 }}><a href={fileUrl(`/purchases/${view.id}/invoice-file`)} target="_blank" rel="noreferrer">📎 View uploaded supplier invoice</a></div>}
           <Table columns={[
             { key: 'medicine_name', label: 'Medicine' },
             { key: 'brand', label: 'Brand' },
@@ -116,6 +116,7 @@ function PurchaseList() {
 
 function NewPurchase({ onClose, onSaved }) {
   const toast = useToast();
+  const { branchId } = useBranch();
   const [suppliers, setSuppliers] = useState([]);
   const [meds, setMeds] = useState([]);
   const [brands, setBrands] = useState([]);
@@ -183,6 +184,7 @@ function NewPurchase({ onClose, onSaved }) {
         method: 'POST',
         body: {
           ...f, supplier_id: Number(f.supplier_id), paid_amount: Number(f.paid_amount) || 0,
+          branch_id: branchId ? Number(branchId) : undefined,
           invoice_file: invoiceFile || undefined,
           items: items.map(it => ({
             medicine_id: it.medicine_id || undefined, medicine_name: it.name.trim(),

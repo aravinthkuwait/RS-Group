@@ -121,6 +121,7 @@ export default function SalesScreen() {
       <FlatList
         data={rows}
         keyExtractor={r => String(r.id)}
+        ListEmptyComponent={<Text style={{ textAlign: 'center', color: colors.ink3, marginTop: 30 }}>No bills match these filters</Text>}
         renderItem={({ item }) => (
           <TouchableOpacity onPress={() => openBill(item.id)}
             style={[{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8 }, shadow]}>
@@ -159,14 +160,24 @@ export default function SalesScreen() {
             {!!view.doctor_name && <Text style={{ color: colors.ink3, marginBottom: 8 }}>Doctor: {view.doctor_name}</Text>}
             {!!view.prescription_file && (
               <View style={{ marginBottom: 10 }}>
-                <TouchableOpacity onPress={() => setShowRx(s => !s)}>
-                  <Text style={{ color: colors.brand, fontWeight: '700' }}>
-                    📎 {showRx ? 'Hide' : 'View'} uploaded prescription
-                  </Text>
-                </TouchableOpacity>
-                {showRx && (
-                  <Image source={{ uri: view.prescription_file }} resizeMode="contain"
-                    style={{ width: '100%', height: 320, marginTop: 8, backgroundColor: '#fff', borderRadius: 10 }} />
+                {view.prescription_file.startsWith('data:image') ? (
+                  <>
+                    <TouchableOpacity onPress={() => setShowRx(s => !s)}>
+                      <Text style={{ color: colors.brand, fontWeight: '700' }}>
+                        📎 {showRx ? 'Hide' : 'View'} uploaded prescription
+                      </Text>
+                    </TouchableOpacity>
+                    {showRx && (
+                      <Image source={{ uri: view.prescription_file }} resizeMode="contain"
+                        style={{ width: '100%', height: 320, marginTop: 8, backgroundColor: '#fff', borderRadius: 10 }} />
+                    )}
+                  </>
+                ) : (
+                  // Non-image (e.g. PDF uploaded from web) — Image can't render it and
+                  // Android can't open data: URLs, so serve it from the API instead.
+                  <TouchableOpacity onPress={() => Linking.openURL(`${BASE_URL}/api/sales/${view.id}/prescription-file?token=${getAuthToken()}`)}>
+                    <Text style={{ color: colors.brand, fontWeight: '700' }}>📎 Open uploaded prescription</Text>
+                  </TouchableOpacity>
                 )}
               </View>
             )}
@@ -271,7 +282,7 @@ function ReturnForm({ sale, onClose, onDone }) {
             </View>
             <TextInput keyboardType="numeric" placeholder="0" placeholderTextColor={colors.ink3}
               value={qty[i.id] === undefined ? '' : String(qty[i.id])}
-              onChangeText={v => setQtys(q => ({ ...q, [i.id]: v }))}
+              onChangeText={v => setQtys(q => ({ ...q, [i.id]: v === '' ? '' : Math.max(0, Math.min(Number(v.replace(/[^0-9]/g, '')) || 0, max)) }))}
               style={{ width: 64, backgroundColor: colors.surface, borderRadius: 8, borderWidth: 1, borderColor: colors.line, padding: 8, textAlign: 'right' }} />
           </View>
         );

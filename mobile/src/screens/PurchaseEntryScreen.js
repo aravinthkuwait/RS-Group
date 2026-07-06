@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, Alert, Platform } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, fmt } from '../api';
@@ -268,7 +268,7 @@ export default function PurchaseEntryScreen({ route, navigation }) {
           <PickerField label="Generic name *" value={draft.generic_name} onChange={v => setDraft(x => ({ ...x, generic_name: v }))} endpoint="/inventory/generics" listKey="generics" />
           <Field label="Strip count (tabs/caps per strip) *" keyboardType="numeric" value={String(draft.strip_count)} onChangeText={v => setDraft(x => ({ ...x, strip_count: v }))} />
           <Field label="Batch number *" autoCapitalize="characters" value={draft.batch_no} onChangeText={v => setDraft(x => ({ ...x, batch_no: v }))} />
-          <Field label="Expiry (MM/YYYY) *" keyboardType="numbers-and-punctuation" placeholder="e.g. 08/2027" value={draft.expiry_date} onChangeText={v => setDraft(x => ({ ...x, expiry_date: v }))} />
+          <Field label="Expiry (MM/YYYY) *" keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'default'} placeholder="e.g. 08/2027" value={draft.expiry_date} onChangeText={v => setDraft(x => ({ ...x, expiry_date: v }))} />
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <View style={{ flex: 1 }}><Field label="Quantity *" keyboardType="numeric" value={String(draft.qty)} onChangeText={v => setDraft(x => ({ ...x, qty: v }))} /></View>
             <View style={{ flex: 1 }}><Field label="Free qty" keyboardType="numeric" value={String(draft.free_qty)} onChangeText={v => setDraft(x => ({ ...x, free_qty: v }))} /></View>

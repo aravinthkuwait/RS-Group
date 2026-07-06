@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, FlatList, TouchableOpacity, Modal, ScrollView, Alert } from 'react-native';
+import { View, Text, TextInput, FlatList, TouchableOpacity, Modal, ScrollView, Alert, Platform } from 'react-native';
 import { api, fmt } from '../api';
 import { useAuth, useBranch, can } from '../../App';
 import { Field, Chips, Btn, BranchBar, shareCsv } from '../ui';
@@ -171,7 +171,7 @@ function AdjustForm({ batch, onClose, onSaved }) {
         </TouchableOpacity>
         <TextInput
           style={{ flex: 1, backgroundColor: '#fff', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: colors.line, textAlign: 'center', fontWeight: '800' }}
-          keyboardType="numbers-and-punctuation" value={change} onChangeText={setChange} placeholder="0" placeholderTextColor={colors.ink3} />
+          keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'default'} value={change} onChangeText={setChange} placeholder="0" placeholderTextColor={colors.ink3} />
         <TouchableOpacity onPress={() => step(1)} style={{ backgroundColor: colors.brandLight, borderRadius: 8, width: 44, paddingVertical: 10 }}>
           <Text style={{ color: colors.brand, fontWeight: '800', textAlign: 'center', fontSize: 16 }}>＋</Text>
         </TouchableOpacity>
