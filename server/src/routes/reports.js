@@ -122,7 +122,7 @@ router.get('/dashboard', requirePermission('dashboard.view'), wrap(async (req, r
 async function salesReport(req) {
   const branchId = scopeBranch(req); const { from, to } = range(req);
   const bw = branchId ? 'AND s.branch_id = ?' : ''; const bp = branchId ? [branchId] : [];
-  const rows = await all(`SELECT s.invoice_no, s.created_at::date AS date, b.name AS branch, c.name AS customer,
+  const rows = await all(`SELECT s.id AS sale_id, s.invoice_no, s.created_at::date AS date, b.name AS branch, c.name AS customer,
       u.name AS staff, s.subtotal, s.discount, s.gst_amount AS gst, s.total,
       s.paid_cash AS cash, s.paid_upi AS upi, s.paid_card AS card, s.credit_amount AS credit, s.status
     FROM sales s JOIN branches b ON b.id = s.branch_id LEFT JOIN customers c ON c.id = s.customer_id
@@ -266,7 +266,7 @@ async function discountsReport(req) {
     WHERE ${NOT_VOID} AND ${DISCOUNT_TOTAL} > 0 AND s.created_at::date BETWEEN ? AND ? ${bw}`;
   let rows;
   if (group === 'bill') {
-    rows = await all(`SELECT s.invoice_no, s.created_at::date AS date, b.name AS branch, u.name AS staff,
+    rows = await all(`SELECT s.id AS sale_id, s.invoice_no, s.created_at::date AS date, b.name AS branch, u.name AS staff,
         c.name AS customer, s.discount_type AS type,
         ROUND((s.subtotal + COALESCE(s.item_discount,0))::numeric, 2) AS gross,
         ROUND(${DISCOUNT_TOTAL}::numeric, 2) AS discount, s.total AS net, ap.name AS approved_by

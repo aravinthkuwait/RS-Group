@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Linking } from 'react-native';
 import { api, fmt, BASE_URL, getAuthToken } from '../api';
@@ -95,27 +95,41 @@ export default function ReportsScreen() {
               </View>
             ))}
           </View>
-          <ScrollView horizontal style={{ flex: 1 }}>
-            <ScrollView>
-              <View style={[{ backgroundColor: '#fff', borderRadius: 10, overflow: 'hidden' }, shadow]}>
-                <View style={{ flexDirection: 'row', backgroundColor: colors.brandLight }}>
-                  {data.columns.map(c => (
-                    <Text key={c.key} style={[cell, { fontWeight: '800', color: colors.brand, minWidth: 90 }]}>{c.label}</Text>
-                  ))}
-                </View>
-                {data.rows.map((r, i) => (
-                  <View key={i} style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: colors.line }}>
-                    {data.columns.map(c => (
-                      <Text key={c.key} style={[cell, { minWidth: 90, textAlign: c.align || 'left' }]} numberOfLines={1}>
-                        {r[c.key] === null || r[c.key] === undefined ? '—' : String(r[c.key])}
-                      </Text>
+          {(() => {
+            // Bill-level reports (sales, discounts by-bill) carry sale_id on each
+            // row — show a View/Print action so a report doubles as a bill lookup.
+            const showBillCol = can(user, 'billing.view', 'billing.create') && data.rows[0]?.sale_id !== undefined;
+            const viewPdf = id => Linking.openURL(`${BASE_URL}/api/sales/${id}/pdf?token=${getAuthToken()}`);
+            return (
+              <ScrollView horizontal style={{ flex: 1 }}>
+                <ScrollView>
+                  <View style={[{ backgroundColor: '#fff', borderRadius: 10, overflow: 'hidden' }, shadow]}>
+                    <View style={{ flexDirection: 'row', backgroundColor: colors.brandLight }}>
+                      {data.columns.map(c => (
+                        <Text key={c.key} style={[cell, { fontWeight: '800', color: colors.brand, minWidth: 90 }]}>{c.label}</Text>
+                      ))}
+                      {showBillCol && <Text style={[cell, { fontWeight: '800', color: colors.brand, minWidth: 90 }]}>Bill</Text>}
+                    </View>
+                    {data.rows.map((r, i) => (
+                      <View key={i} style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: colors.line }}>
+                        {data.columns.map(c => (
+                          <Text key={c.key} style={[cell, { minWidth: 90, textAlign: c.align || 'left' }]} numberOfLines={1}>
+                            {r[c.key] === null || r[c.key] === undefined ? '—' : String(r[c.key])}
+                          </Text>
+                        ))}
+                        {showBillCol && (
+                          <TouchableOpacity onPress={() => viewPdf(r.sale_id)} style={[cell, { minWidth: 90, justifyContent: 'center' }]}>
+                            <Text style={{ color: colors.brand, fontWeight: '700', fontSize: 12 }}>👁 View / Print</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     ))}
+                    {data.rows.length === 0 && <Text style={[cell, { padding: 16 }]}>No data for this period</Text>}
                   </View>
-                ))}
-                {data.rows.length === 0 && <Text style={[cell, { padding: 16 }]}>No data for this period</Text>}
-              </View>
-            </ScrollView>
-          </ScrollView>
+                </ScrollView>
+              </ScrollView>
+            );
+          })()}
         </>
       )}
     </View>
