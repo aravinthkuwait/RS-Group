@@ -209,7 +209,10 @@ export async function thermalReceiptPdf(res, sale, items, branch, customer, staf
   const cols = [['SN', 2], ['DESCRIPTION', 18], ['QTY', 3, true], ['BATCH', 7], ['EXP', 5], ['AMOUNT', 8, true]];
   const row = vals => cols.map(([, n, right], i) => pad(vals[i], n, right)).join(' ');
   const dash = '-'.repeat(cols.reduce((a, [, n]) => a + n + 1, -1));
-  const boxLine = `+${'-'.repeat(dash.length)}+`;
+  // Same total character count as `dash` (the `+` chars replace two dashes,
+  // not add to them) — otherwise the box border is 2 chars wider than the
+  // item table and right-aligned totals, and visibly overflows past their edge.
+  const boxLine = `+${'-'.repeat(dash.length - 2)}+`;
   const centered = (text, size, bold) => doc.font(bold ? 'Courier-Bold' : 'Courier').fontSize(size).text(text, { width: CW, align: 'center' });
   // Right-aligned totals/footer lines must stop at the same edge as the dash/box
   // border, not the full CW — otherwise (no explicit width) pdfkit right-aligns

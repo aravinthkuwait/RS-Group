@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api, fileUrl, fmt, monthStart, today } from '../api.js';
+import { api, fileUrl, fmt, monthStart, today, openAndPrint } from '../api.js';
 import { useAuth, useBranch, can } from '../App.jsx';
 import { Card, Table, useToast, Stat } from '../ui.jsx';
 import { BarList } from '../charts.jsx';
@@ -99,7 +99,20 @@ export default function Reports() {
             ))}
           </div>
           <Table
-            columns={data.columns.map(c => ({ key: c.key, label: c.label, num: c.align === 'right' }))}
+            columns={[
+              ...data.columns.map(c => ({ key: c.key, label: c.label, num: c.align === 'right' })),
+              // Bill-level reports (sales, discounts by-bill) carry sale_id on each row —
+              // add a view/print action so a report doubles as a bill lookup.
+              ...(can(user, 'billing.view', 'billing.create') && data.rows[0]?.sale_id !== undefined ? [{
+                key: '_bill', label: '',
+                render: r => (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <a className="btn ghost sm" href={fileUrl(`/sales/${r.sale_id}/pdf`)} target="_blank" rel="noreferrer">👁 View</a>
+                    <button className="btn ghost sm" onClick={() => openAndPrint(fileUrl(`/sales/${r.sale_id}/pdf`))}>🖨 Print</button>
+                  </div>
+                ),
+              }] : []),
+            ]}
             rows={data.rows}
           />
         </Card>

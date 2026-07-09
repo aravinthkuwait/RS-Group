@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { api, fileUrl, fmt } from '../api.js';
+import { api, fileUrl, fmt, openAndPrint } from '../api.js';
 import { useAuth, useBranch, can } from '../App.jsx';
 import { Card, Field, Modal, useToast, Badge } from '../ui.jsx';
 
@@ -512,7 +512,7 @@ export function BillDoneModal({ sale, onClose }) {
         <button className="btn ghost" onClick={onClose}>New Bill</button>
         <button className="btn orange" onClick={wa}>📱 WhatsApp</button>
         <a className="btn green" href={fileUrl(`/sales/${sale.id}/pdf`)} target="_blank" rel="noreferrer">⬇ PDF Bill</a>
-        <button className="btn" onClick={() => window.open(fileUrl(`/sales/${sale.id}/pdf`), '_blank')?.print?.()}>🖨 Print Receipt</button>
+        <button className="btn" onClick={() => openAndPrint(fileUrl(`/sales/${sale.id}/pdf`))}>🖨 Print Receipt</button>
       </>
     }>
       <div style={{ textAlign: 'center', padding: '6px 0 14px' }}>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api, fileUrl, fmt, monthStart, today } from '../api.js';
+import { api, fileUrl, fmt, monthStart, today, openAndPrint } from '../api.js';
 import { useAuth, useBranch, can } from '../App.jsx';
 import { Card, Table, Badge, Modal, Field, useToast, useDebounced, ExportBtn } from '../ui.jsx';
 
@@ -81,6 +81,7 @@ export default function Sales() {
               <button className="btn red" onClick={() => cancel(view)}>Cancel bill</button>
             )}
             <a className="btn green" href={fileUrl(`/sales/${view.id}/pdf`)} target="_blank" rel="noreferrer">⬇ PDF</a>
+            <button className="btn" onClick={() => openAndPrint(fileUrl(`/sales/${view.id}/pdf`))}>🖨 Print</button>
           </>
         }>
           <div className="form-row" style={{ marginBottom: 10 }}>
