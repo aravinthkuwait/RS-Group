@@ -44,9 +44,12 @@ export default function TransfersScreen() {
     ]);
   };
 
-  // Same gating as web Transfers.jsx:31-32
-  const canReceive = t => t.status === 'pending' && (user.role === 'super_admin' || user.branch_id === t.to_branch_id);
-  const canCancel = t => t.status === 'pending' && (user.role === 'super_admin' || user.branch_id === t.from_branch_id);
+  // A user may act on a transfer if ANY of their assigned branches (primary +
+  // extra_branches, served as user.branches) matches — mirrors server canAccessBranch.
+  const myBranches = (user.branches || []).map(b => b.id);
+  const inMyBranches = id => user.role === 'super_admin' || myBranches.includes(Number(id)) || user.branch_id === id;
+  const canReceive = t => t.status === 'pending' && inMyBranches(t.to_branch_id);
+  const canCancel = t => t.status === 'pending' && inMyBranches(t.from_branch_id);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
