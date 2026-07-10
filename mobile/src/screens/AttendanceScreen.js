@@ -20,6 +20,7 @@ export default function AttendanceScreen() {
   const mark = async which => {
     try {
       await api(`/staff/attendance/${which}`, { method: 'POST', body: { method: 'mobile' } });
+      Alert.alert('Attendance', which === 'check-in' ? 'Checked in ✓' : 'Checked out ✓');
       load();
     } catch (e) { Alert.alert('Attendance', e.message); }
   };

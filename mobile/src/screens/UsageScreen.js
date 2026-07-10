@@ -29,7 +29,7 @@ const CLEANUPS = [
   { key: 'notifications', label: 'Read notifications > 30 days', count: d => d.growth.notifications.read },
   { key: 'audit_logs', label: 'Audit entries > 1 year', count: d => (d.growth.audit_logs.rows > 50000 ? d.growth.audit_logs.rows : 0) },
   { key: 'prescriptions', label: 'Prescription files > 6 months', count: d => d.blobs.prescriptions.count, sub: d => fmtSize(d.blobs.prescriptions.bytes) },
-  { key: 'invoice_files', label: 'Invoice files > 6 months', count: d => d.blobs.invoices.count, sub: d => fmtSize(d.blobs.invoices.bytes) },
+  { key: 'invoice_files', label: 'Supplier invoice files > 6 months', count: d => d.blobs.invoices.count, sub: d => fmtSize(d.blobs.invoices.bytes) },
 ];
 
 export default function UsageScreen() {
@@ -40,7 +40,7 @@ export default function UsageScreen() {
   useFocusEffect(load);
 
   const cleanup = (target, label, n) => {
-    Alert.alert('Clean up?', `Delete ${n} — ${label}? This frees space and cannot be undone.`, [
+    Alert.alert('Clean up?', `Clean up ${label}? This permanently deletes ${n} rows to free space.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Clean up', style: 'destructive', onPress: async () => {
         setBusy(target);
@@ -53,13 +53,12 @@ export default function UsageScreen() {
 
   if (!d) return <View style={{ flex: 1, backgroundColor: colors.surface, justifyContent: 'center' }}><ActivityIndicator color={colors.brand} /></View>;
   const blobBytes = d.blobs.prescriptions.bytes + d.blobs.invoices.bytes;
-  const topTables = d.tables.slice(0, 10);
-  const maxPct = Math.max(...topTables.map(t => t.pct), 1);
+  const topTables = d.tables.slice(0, 14);
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.surface }} contentContainerStyle={{ padding: 12, gap: 12 }}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-        <Stat label="Database size" value={fmtSize(d.db_bytes)} sub="on Supabase" accent={colors.brand} />
+        <Stat label="Database size" value={fmtSize(d.db_bytes)} sub="total on Supabase" accent={colors.brand} />
         <Stat label="Files in DB" value={fmtSize(blobBytes)} sub={`${d.blobs.prescriptions.count} Rx + ${d.blobs.invoices.count} inv`} accent={blobBytes > 20 * 1048576 ? colors.red : colors.orange} />
         <Stat label="Bills (30d)" value={String(d.activity.bills_30d)} sub={`${d.activity.active_sessions} active sessions`} accent={colors.green} />
         <Stat label="Audit rows" value={String(d.growth.audit_logs.rows)} sub={`since ${d.growth.audit_logs.oldest || '—'}`} accent={colors.orange} />
@@ -83,8 +82,9 @@ export default function UsageScreen() {
               <Text style={{ fontWeight: '600', fontSize: 13 }}>{t.name}</Text>
               <Text style={{ color: colors.ink3, fontSize: 12 }}>{fmtSize(t.bytes)} · {t.pct}%</Text>
             </View>
+            <Text style={{ color: colors.ink3, fontSize: 11 }}>{Number(t.est_rows).toLocaleString('en-IN')} rows</Text>
             <View style={{ height: 7, backgroundColor: colors.line, borderRadius: 4, marginTop: 3, overflow: 'hidden' }}>
-              <View style={{ width: `${(t.pct / maxPct) * 100}%`, height: '100%', backgroundColor: t.pct > 30 ? colors.red : t.pct > 12 ? colors.orange : colors.brand }} />
+              <View style={{ width: `${Math.min(100, t.pct)}%`, height: '100%', backgroundColor: t.pct > 30 ? colors.red : t.pct > 12 ? colors.orange : colors.brand }} />
             </View>
           </View>
         ))}

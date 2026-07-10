@@ -10,7 +10,7 @@ const empty = {
 };
 
 export default function Offers() {
-  const { branches } = useBranch();
+  const { options: branches } = useBranch();
   const toast = useToast();
   const [rows, setRows] = useState([]);
   const [modal, setModal] = useState(null);

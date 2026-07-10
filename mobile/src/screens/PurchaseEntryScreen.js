@@ -107,14 +107,22 @@ export default function PurchaseEntryScreen({ route, navigation }) {
   const total = items.reduce((a, it) => a + (Number(it.qty) || 0) * (Number(it.purchase_price) || 0), 0);
   const supplierName = suppliers.find(s => s.id === Number(supplierId))?.name;
 
-  const openNew = () => { setDraft(blankItem()); setEditIdx(-1); };
-  const openEdit = (i) => { setDraft({ ...items[i] }); setEditIdx(i); };
+  const [medMatches, setMedMatches] = useState([]);
+  const openNew = () => { setDraft(blankItem()); setEditIdx(-1); setMedMatches([]); };
+  const openEdit = (i) => { setDraft({ ...items[i] }); setEditIdx(i); setMedMatches([]); };
 
   const lookupMedicine = async (term) => {
-    const d = await api('/inventory/medicines', { params: { q: term, limit: 1 } }).catch(() => ({ medicines: [] }));
-    const m = d.medicines?.[0];
-    if (m) setDraft(x => ({ ...x, medicine_id: m.id, name: m.name, brand: m.brand || '', generic_name: m.generic_name || '', strip_count: String(m.strip_count || ''), gst_rate: m.gst_rate, isNew: false }));
+    const d = await api('/inventory/medicines', { params: { q: term, limit: 10 } }).catch(() => ({ medicines: [] }));
+    const list = d.medicines || [];
+    if (list.length > 1) { setMedMatches(list); return; }
+    setMedMatches([]);
+    const m = list[0];
+    if (m) applyMedicine(m);
     else setDraft(x => ({ ...x, medicine_id: null, isNew: true }));
+  };
+  const applyMedicine = (m) => {
+    setDraft(x => ({ ...x, medicine_id: m.id, name: m.name, brand: m.brand || '', generic_name: m.generic_name || '', strip_count: String(m.strip_count || ''), gst_rate: m.gst_rate, isNew: false }));
+    setMedMatches([]);
   };
 
   const onScan = ({ data }) => {
@@ -134,7 +142,14 @@ export default function PurchaseEntryScreen({ route, navigation }) {
   const snapInvoice = async () => {
     try {
       const photo = await camRef.current?.takePictureAsync({ base64: true, quality: 0.4 });
-      if (photo?.base64) setInvoiceFile(`data:image/jpeg;base64,${photo.base64}`);
+      if (photo?.base64) {
+        const dataUrl = `data:image/jpeg;base64,${photo.base64}`;
+        if (dataUrl.length > 1_400_000) {
+          setScanning(false); setPhotoMode(false);
+          return Alert.alert('File too large (max 1.4MB)', 'Please retake with lower quality or crop tighter.');
+        }
+        setInvoiceFile(dataUrl);
+      }
     } catch { Alert.alert('Could not capture photo'); }
     setScanning(false); setPhotoMode(false);
   };
@@ -154,6 +169,7 @@ export default function PurchaseEntryScreen({ route, navigation }) {
   const save = async () => {
     if (!supplierId) return Alert.alert('Choose a supplier');
     if (!invoiceNo.trim()) return Alert.alert('Enter the supplier invoice number');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(invoiceDate.trim())) return Alert.alert('Invoice date must be in YYYY-MM-DD format');
     if (!items.length) return Alert.alert('Add at least one item');
     setBusy(true);
     try {
@@ -192,7 +208,10 @@ export default function PurchaseEntryScreen({ route, navigation }) {
       <Field label="Invoice date (YYYY-MM-DD)" value={invoiceDate} onChangeText={setInvoiceDate} />
       <Field label="Paid now (₹, 0 = full credit)" keyboardType="numeric" value={paidAmount} onChangeText={setPaidAmount} />
       <Chips label="Paid via" value={paidMethod} onChange={setPaidMethod}
-        options={['bank', 'cash', 'upi', 'cheque'].map(m => ({ value: m, label: m.toUpperCase() }))} />
+        options={[
+          { value: 'bank', label: 'Bank transfer' }, { value: 'cash', label: 'Cash' },
+          { value: 'upi', label: 'UPI' }, { value: 'cheque', label: 'Cheque' },
+        ]} />
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
         <TouchableOpacity onPress={startInvoicePhoto}
           style={{ backgroundColor: colors.brandLight, borderRadius: 8, padding: 10, flex: 1 }}>
@@ -256,13 +275,24 @@ export default function PurchaseEntryScreen({ route, navigation }) {
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
             <View style={{ flex: 1 }}>
               <Field label="Medicine name *" value={draft.name}
-                onChangeText={v => setDraft(x => ({ ...x, name: v }))}
+                onChangeText={v => { setDraft(x => ({ ...x, name: v })); setMedMatches([]); }}
                 onEndEditing={e => e.nativeEvent.text.trim() && lookupMedicine(e.nativeEvent.text.trim())} />
             </View>
             <TouchableOpacity onPress={startScan} style={{ backgroundColor: colors.brand, borderRadius: 8, padding: 12, marginBottom: 10 }}>
               <Text style={{ color: '#fff' }}>📷</Text>
             </TouchableOpacity>
           </View>
+          {medMatches.length > 0 && (
+            <View style={[{ backgroundColor: '#fff', borderRadius: 10, marginBottom: 10, borderWidth: 1, borderColor: colors.line }, shadow]}>
+              {medMatches.map(m => (
+                <TouchableOpacity key={m.id} onPress={() => applyMedicine(m)}
+                  style={{ padding: 10, borderBottomWidth: 1, borderColor: colors.line }}>
+                  <Text style={{ fontWeight: '700' }}>{m.name} <Text style={{ color: colors.ink3, fontWeight: '400' }}>{m.brand} · {m.generic_name}</Text></Text>
+                  <Text style={{ color: colors.ink3, fontSize: 12 }}>GST {m.gst_rate}% · {m.strip_count || 1}/strip</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
           {draft.isNew && <Text style={{ color: colors.green, fontSize: 12, marginBottom: 8 }}>New medicine — brand, generic & strip count will create it.</Text>}
           <PickerField label="Brand name *" value={draft.brand} onChange={v => setDraft(x => ({ ...x, brand: v }))} endpoint="/inventory/brands" listKey="brands" />
           <PickerField label="Generic name *" value={draft.generic_name} onChange={v => setDraft(x => ({ ...x, generic_name: v }))} endpoint="/inventory/generics" listKey="generics" />

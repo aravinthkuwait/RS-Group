@@ -100,13 +100,19 @@ export default function Alerts() {
       )}
       {tab === 'movers' && (
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
-          <Card title="Fast moving (30 days)">
+          <Card title="Fast moving (30 days)"
+            actions={<ExportBtn name="fast-movers" rows={d.fast_moving} columns={[
+              { key: 'name', label: 'Medicine' }, { key: 'sold_30d', label: 'Sold' },
+            ]} />}>
             <Table columns={[
               { key: 'name', label: 'Medicine' },
               { key: 'sold_30d', label: 'Sold', num: true },
             ]} rows={d.fast_moving} empty="No sales data yet" />
           </Card>
-          <Card title="Slow moving (≤1 sold in 30 days)">
+          <Card title="Slow moving (≤1 sold in 30 days)"
+            actions={<ExportBtn name="slow-movers" rows={d.slow_moving} columns={[
+              { key: 'name', label: 'Medicine' }, { key: 'sold_30d', label: 'Sold' },
+            ]} />}>
             <Table columns={[
               { key: 'name', label: 'Medicine' },
               { key: 'sold_30d', label: 'Sold', num: true },

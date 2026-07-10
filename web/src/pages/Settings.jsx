@@ -357,7 +357,8 @@ function Permissions() {
 function Audit() {
   const toast = useToast();
   const [rows, setRows] = useState([]);
-  useEffect(() => { api('/admin/audit-logs').then(d => setRows(d.logs)).catch(e => toast(e.message, 'red')); }, []);
+  const [limit, setLimit] = useState(200);
+  useEffect(() => { api('/admin/audit-logs', { params: { limit } }).then(d => setRows(d.logs)).catch(e => toast(e.message, 'red')); }, [limit]);
   return (
     <Card title="Activity log — every important action is recorded"
       actions={<ExportBtn name="activity-log" rows={rows} columns={[
@@ -374,6 +375,11 @@ function Audit() {
         { key: 'details', label: 'Details (old → new)', render: r => <AuditDetails text={r.details} /> },
         { key: 'ip', label: 'IP' },
       ]} rows={rows} keyFn={r => r.id} />
+      {rows.length >= limit && limit < 1000 && (
+        <div className="toolbar">
+          <button className="btn ghost sm" onClick={() => setLimit(l => Math.min(l + 200, 1000))}>Load more</button>
+        </div>
+      )}
     </Card>
   );
 }

@@ -21,8 +21,8 @@ export default function Usage() {
   const load = () => api('/admin/usage').then(setD).catch(e => toast(e.message, 'red'));
   useEffect(() => { load(); }, []);
 
-  const cleanup = async (target, label) => {
-    if (!confirm(`Clean up ${label}? This permanently deletes those rows to free space.`)) return;
+  const cleanup = async (target, label, count) => {
+    if (!confirm(`Clean up ${label}? This permanently deletes ${count} rows to free space.`)) return;
     setBusy(target);
     try {
       const r = await api('/admin/usage/cleanup', { method: 'POST', body: { target } });
@@ -121,7 +121,7 @@ function CleanRow({ label, count, sub, target, busy, onRun, note }) {
       <td dangerouslySetInnerHTML={{ __html: label }} />
       <td className="num">{has ? Number(count).toLocaleString('en-IN') : '0'}{sub && has ? <span className="muted"> · {sub}</span> : ''}{note && <div className="muted" style={{ fontSize: '.7rem' }}>{note}</div>}</td>
       <td style={{ textAlign: 'right' }}>
-        <button className="btn ghost sm" disabled={!has || busy === target} onClick={() => onRun(target, label.replace(/&gt;/g, '>'))}>
+        <button className="btn ghost sm" disabled={!has || busy === target} onClick={() => onRun(target, label.replace(/&gt;/g, '>'), count)}>
           {busy === target ? 'Cleaning…' : 'Clean up'}
         </button>
       </td>

@@ -58,7 +58,7 @@ export default function OffersScreen() {
     { text: 'Delete', style: 'destructive', onPress: async () => {
       try {
         const d = await api(`/promotions/${p.id}`, { method: 'DELETE' });
-        if (d.message) Alert.alert('Offer deactivated', d.message);
+        Alert.alert(d.deactivated ? 'Offer deactivated' : 'Offer deleted', d.message || 'The offer was removed.');
         load();
       } catch (e) { Alert.alert('Error', e.message); }
     } },
@@ -130,15 +130,17 @@ function OfferModal({ offer, categories, onClose, onSaved }) {
   const debounce = useRef(null);
   useEffect(() => {
     clearTimeout(debounce.current);
-    if (f.applies_to !== 'medicine' || !mq.trim()) { setMeds([]); return; }
+    if (f.applies_to !== 'medicine') { setMeds([]); return; }
     debounce.current = setTimeout(() => {
       api('/inventory/medicines', { params: { q: mq.trim(), limit: 15 } })
         .then(d => setMeds(d.medicines)).catch(() => {});
     }, 250);
   }, [mq, f.applies_to]);
 
+  const isoDate = /^\d{4}-\d{2}-\d{2}$/;
   const save = async () => {
     if (!f.name || !f.discount_value) return Alert.alert('Missing details', 'Offer name and discount value are required.');
+    if (!isoDate.test(f.from_date) || !isoDate.test(f.to_date)) return Alert.alert('Invalid date', 'Dates must be in YYYY-MM-DD format.');
     setBusy(true);
     try {
       const body = {
@@ -173,7 +175,7 @@ function OfferModal({ offer, categories, onClose, onSaved }) {
       <Field label="Minimum bill amount ₹" keyboardType="numeric"
         value={String(f.min_bill_amount)} onChangeText={v => set('min_bill_amount', v)} />
       <Chips label="Applies to" value={f.applies_to} onChange={v => set('applies_to', v)}
-        options={[{ value: 'all', label: 'Whole bill' }, { value: 'category', label: 'A category' }, { value: 'medicine', label: 'A medicine' }]} />
+        options={[{ value: 'all', label: 'Whole bill' }, { value: 'category', label: 'A medicine category' }, { value: 'medicine', label: 'A specific medicine' }]} />
       {f.applies_to === 'category' && (
         <Chips label="Category" value={f.category} onChange={v => set('category', v)}
           options={categories.map(c => ({ value: c, label: c }))} />

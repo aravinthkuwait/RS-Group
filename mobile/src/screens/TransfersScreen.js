@@ -5,7 +5,7 @@ import { useAuth, useBranch, can } from '../../App';
 import { Field, Chips, Btn, BranchBar, shareCsv } from '../ui';
 import { colors, shadow } from '../theme';
 
-const STATUS_COLOR = { pending: colors.orange, completed: colors.green, cancelled: colors.ink3 };
+const STATUS_COLOR = { pending: colors.orange, completed: colors.green, cancelled: colors.red };
 
 const CSV_COLS = [
   { key: 'id', label: '#' }, { key: 'created_at', label: 'Date' },
@@ -38,7 +38,7 @@ export default function TransfersScreen() {
       { text: 'Yes, cancel', style: 'destructive', onPress: async () => {
         try {
           await api(`/inventory/transfers/${t.id}/cancel`, { method: 'POST', body: {} });
-          load();
+          Alert.alert('Cancelled', 'Transfer cancelled'); load();
         } catch (e) { Alert.alert('Could not cancel', e.message); }
       } },
     ]);
@@ -59,13 +59,13 @@ export default function TransfersScreen() {
           <View style={{ flex: 1 }}><Btn title="＋ New Transfer" onPress={() => setShowNew(true)} /></View>
         )}
         <View style={{ flex: 1 }}>
-          <Btn title="⇪ Export CSV" color={colors.ink2} onPress={() => shareCsv('stock-transfers', CSV_COLS, rows)} />
+          <Btn title="⇪ Export CSV" color={colors.ink2} disabled={!rows.length} onPress={() => shareCsv('stock-transfers', CSV_COLS, rows)} />
         </View>
       </View>
       <FlatList
         data={rows}
         keyExtractor={r => String(r.id)}
-        ListEmptyComponent={<Text style={{ color: colors.ink3, textAlign: 'center', marginTop: 30 }}>No transfers yet</Text>}
+        ListEmptyComponent={<Text style={{ color: colors.ink3, textAlign: 'center', marginTop: 30 }}>No records found</Text>}
         renderItem={({ item: t }) => (
           <View style={[{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8 }, shadow]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -111,8 +111,10 @@ export default function TransfersScreen() {
 function NewTransfer({ branches, onClose, onSaved }) {
   const { user } = useAuth();
   const { branchId } = useBranch();
-  // Mirrors web: super admin transfers from the currently selected branch, staff from their own.
-  const fromBranch = user.role === 'super_admin' ? (branchId || branches[0]?.id) : user.branch_id;
+  // Mirrors web: super admin transfers from the currently selected branch (and can
+  // change it here), staff from their own (fixed).
+  const [fromBranch, setFromBranch] = useState(user.role === 'super_admin' ? (branchId || branches[0]?.id) : user.branch_id);
+  const changeFromBranch = id => { setFromBranch(id); setItems([]); setFound([]); setQ(''); };
   const [toBranch, setToBranch] = useState('');
   const [q, setQ] = useState('');
   const [found, setFound] = useState([]);
@@ -137,7 +139,7 @@ function NewTransfer({ branches, onClose, onSaved }) {
   };
   const setQty = (batch_id, v, max) => {
     const clean = v.replace(/[^0-9]/g, '');
-    const qty = clean === '' ? '' : String(Math.min(Number(clean), max));
+    const qty = clean === '' ? '' : String(Math.max(1, Math.min(Number(clean), max)));
     setItems(its => its.map(i => (i.batch_id === batch_id ? { ...i, qty } : i)));
   };
 
@@ -163,10 +165,17 @@ function NewTransfer({ branches, onClose, onSaved }) {
     <ScrollView style={{ flex: 1, backgroundColor: colors.surface }} contentContainerStyle={{ padding: 16, paddingTop: 50 }}
       keyboardShouldPersistTaps="handled">
       <Text style={{ fontSize: 18, fontWeight: '800', marginBottom: 12 }}>New stock transfer</Text>
-      <Text style={{ fontSize: 12, fontWeight: '700', color: colors.ink2, marginBottom: 4 }}>From branch</Text>
-      <Text style={{ backgroundColor: colors.line, borderRadius: 8, padding: 10, marginBottom: 10, color: colors.ink2, fontWeight: '600' }}>
-        🏬 {fromName}
-      </Text>
+      {user.role === 'super_admin'
+        ? <Chips label="From branch" value={Number(fromBranch)} onChange={changeFromBranch}
+            options={branches.map(b => ({ value: b.id, label: b.name }))} />
+        : (
+          <>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: colors.ink2, marginBottom: 4 }}>From branch</Text>
+            <Text style={{ backgroundColor: colors.line, borderRadius: 8, padding: 10, marginBottom: 10, color: colors.ink2, fontWeight: '600' }}>
+              🏬 {fromName}
+            </Text>
+          </>
+        )}
       <Chips label="To branch *" value={toBranch} onChange={setToBranch}
         options={branches.filter(b => b.id !== Number(fromBranch)).map(b => ({ value: b.id, label: b.name }))} />
       <Field label="Find batch in source branch" placeholder="🔍 Medicine, batch, brand…" value={q} onChangeText={setQ} />

@@ -181,7 +181,7 @@ function ReceivePaymentModal({ c, onClose, onDone }) {
   };
   return (
     <Modal title={`Receive payment — ${c.name}`} onClose={onClose} footer={
-      <><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn green" onClick={save}>Save</button></>
+      <><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn green" onClick={save} disabled={!Number(amount)}>Save</button></>
     }>
       <div className="muted" style={{ marginBottom: 10 }}>Credit due: <b>{fmt(c.credit_balance)}</b></div>
       <div className="form-row">

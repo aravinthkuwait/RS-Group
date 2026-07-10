@@ -19,7 +19,7 @@ export default function MoreScreen({ navigation }) {
     can(user, 'delivery.view') && { t: '🛵 Deliveries', nav: 'Deliveries' },
     can(user, 'staff.manage') && { t: '🧑‍⚕️ Users & Staff', nav: 'AdminUsers' },
     can(user, 'branches.manage') && { t: '🏬 Branches', nav: 'AdminBranches' },
-    can(user, 'staff.manage') && { t: '📣 Announcements', nav: 'Announce' },
+    can(user, 'staff.manage', 'tasks.manage') && { t: '📣 Announcements', nav: 'Announce' },
     user.role === 'super_admin' && { t: '💰 Usage & Cost', nav: 'Usage' },
     can(user, 'tasks.view') && { t: '📋 My Tasks', nav: 'Tasks' },
     can(user, 'attendance.self') && { t: '🕐 Attendance Check-in/out', nav: 'Attendance' },

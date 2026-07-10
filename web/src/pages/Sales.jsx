@@ -141,17 +141,20 @@ function ReturnModal({ sale, onClose, onDone }) {
   const [qty, setQtys] = useState({});
   const [reason, setReason] = useState('');
   const [method, setMethod] = useState('cash');
+  const [busy, setBusy] = useState(false);
   const items = sale.items.filter(i => i.qty - i.returned_qty > 0);
   const refund = items.reduce((a, i) => a + (Number(qty[i.id]) || 0) * i.price, 0);
 
   const submit = async () => {
     const sel = items.filter(i => Number(qty[i.id]) > 0).map(i => ({ sale_item_id: i.id, qty: Number(qty[i.id]) }));
     if (!sel.length) return toast('Enter quantities to return', 'red');
+    setBusy(true);
     try {
       const d = await api(`/sales/${sale.id}/returns`, { method: 'POST', body: { items: sel, reason, refund_method: method } });
       toast(`Return saved — refund ${fmt(d.refund_amount)}`, 'green');
       onDone();
     } catch (e) { toast(e.message, 'red'); }
+    setBusy(false);
   };
 
   return (
@@ -159,7 +162,7 @@ function ReturnModal({ sale, onClose, onDone }) {
       <>
         <div style={{ flex: 1, fontWeight: 700 }}>Refund: {fmt(refund)}</div>
         <button className="btn ghost" onClick={onClose}>Close</button>
-        <button className="btn orange" onClick={submit}>Confirm Return</button>
+        <button className="btn orange" onClick={submit} disabled={busy}>{busy ? 'Saving…' : 'Confirm Return'}</button>
       </>
     }>
       <Table

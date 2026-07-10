@@ -38,4 +38,4 @@ export async function api(path, { method = 'GET', body, params } = {}) {
   return data;
 }
 
-export const fmt = n => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+export const fmt = n => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

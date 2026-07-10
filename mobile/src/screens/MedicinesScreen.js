@@ -66,7 +66,9 @@ export default function MedicinesScreen() {
       </ScrollView>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
         <Text style={{ flex: 1, color: colors.ink3, fontSize: 12 }}>{total} medicines</Text>
-        <TouchableOpacity onPress={() => shareCsv('medicines.csv', CSV_COLUMNS, rows || [])}
+        <TouchableOpacity onPress={() => api('/inventory/medicines', { params: { q, category, branch_id: branchId, limit: 100000 } })
+          .then(d => shareCsv('medicines.csv', CSV_COLUMNS, d.medicines))
+          .catch(e => Alert.alert('Error', e.message))}
           style={{ backgroundColor: colors.brandLight, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12 }}>
           <Text style={{ color: colors.brand, fontWeight: '700', fontSize: 12 }}>⬇ CSV</Text>
         </TouchableOpacity>

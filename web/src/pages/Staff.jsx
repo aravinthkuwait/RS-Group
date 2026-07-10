@@ -42,6 +42,7 @@ function Users() {
           { key: 'name', label: 'Name' }, { key: 'email', label: 'Email' },
           { key: 'phone', label: 'Phone' }, { key: 'role', label: 'Role' },
           { key: 'branch_name', label: 'Branch' },
+          { key: 'max_discount_percent', label: 'Max disc %' }, { key: 'active', label: 'Active' },
         ]} />
         <button className="btn" onClick={() => setEdit({})}>+ Add User</button>
       </div>
@@ -153,7 +154,7 @@ function UserModal({ u, roles, branches, me, onClose, onSaved }) {
 
 function Tasks() {
   const { user } = useAuth();
-  const { branchId } = useBranch();
+  const { branchId, branches } = useBranch();
   const toast = useToast();
   const [rows, setRows] = useState([]);
   const [show, setShow] = useState(false);
@@ -186,7 +187,7 @@ function Tasks() {
         { key: 'assigned_to_name', label: 'Assigned to' },
         { key: 'branch_name', label: 'Branch' },
         { key: 'due_date', label: 'Due' },
-        { key: 'status', label: 'Status', render: r => <Badge>{r.status}</Badge> },
+        { key: 'status', label: 'Status', render: r => <Badge>{r.status.replace(/_/g, ' ')}</Badge> },
         {
           label: '', render: r => r.status !== 'done' && (
             <div style={{ display: 'flex', gap: 6 }}>
@@ -196,18 +197,18 @@ function Tasks() {
           ),
         },
       ]} rows={rows} />
-      {show && <TaskModal users={users} onClose={() => setShow(false)} onSaved={() => { setShow(false); load(); }} />}
+      {show && <TaskModal users={users} branches={branches} isSuperAdmin={user.role === 'super_admin'} onClose={() => setShow(false)} onSaved={() => { setShow(false); load(); }} />}
     </Card>
   );
 }
 
-function TaskModal({ users, onClose, onSaved }) {
+function TaskModal({ users, branches, isSuperAdmin, onClose, onSaved }) {
   const toast = useToast();
-  const [f, setF] = useState({ title: '', description: '', assigned_to: '', due_date: '' });
+  const [f, setF] = useState({ title: '', description: '', assigned_to: '', due_date: '', branch_id: '' });
   const set = k => e => setF(x => ({ ...x, [k]: e.target.value }));
   const save = async () => {
     try {
-      await api('/staff/tasks', { method: 'POST', body: { ...f, assigned_to: f.assigned_to ? Number(f.assigned_to) : null } });
+      await api('/staff/tasks', { method: 'POST', body: { ...f, assigned_to: f.assigned_to ? Number(f.assigned_to) : null, branch_id: f.branch_id ? Number(f.branch_id) : null } });
       toast('Task created', 'green'); onSaved();
     } catch (e) { toast(e.message, 'red'); }
   };
@@ -226,6 +227,14 @@ function TaskModal({ users, onClose, onSaved }) {
         </Field>
         <Field label="Due date" type="date" value={f.due_date} onChange={set('due_date')} />
       </div>
+      {isSuperAdmin && (
+        <Field label="Branch">
+          <select value={f.branch_id} onChange={set('branch_id')}>
+            <option value="">All branches</option>
+            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </Field>
+      )}
     </Modal>
   );
 }
@@ -312,7 +321,7 @@ function Deliveries() {
         { key: 'delivery_address', label: 'Address' },
         { key: 'total', label: 'Amount', num: true, render: r => fmt(r.total) },
         { key: 'delivery_staff_name', label: 'Rider' },
-        { key: 'delivery_status', label: 'Status', render: r => <Badge>{r.delivery_status}</Badge> },
+        { key: 'delivery_status', label: 'Status', render: r => <Badge>{r.delivery_status.replace(/_/g, ' ')}</Badge> },
         {
           label: '', render: r => can(user, 'delivery.update') && r.delivery_status !== 'delivered' && (
             <div style={{ display: 'flex', gap: 6 }}>
