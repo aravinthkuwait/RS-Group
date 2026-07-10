@@ -76,25 +76,28 @@ function Row({ l, r, bold, red }) {
   );
 }
 
-function StatCard({ label, value, sub, accent }) {
-  return (
+function StatCard({ label, value, sub, accent, onPress }) {
+  const body = (
     <View style={[{ backgroundColor: '#fff', borderRadius: 12, padding: 14, flex: 1, minWidth: '46%', borderTopWidth: 3, borderTopColor: accent }, shadow]}>
       <Text style={{ fontSize: 11, color: colors.ink3, fontWeight: '700', textTransform: 'uppercase' }}>{label}</Text>
       <Text style={{ fontSize: 20, fontWeight: '800', color: colors.ink, marginTop: 4 }}>{value}</Text>
       {!!sub && <Text style={{ fontSize: 11, color: colors.ink2, marginTop: 2 }}>{sub}</Text>}
     </View>
   );
+  if (!onPress) return body;
+  return <TouchableOpacity style={{ flex: 1, minWidth: '46%' }} onPress={onPress}>{body}</TouchableOpacity>;
 }
 
 export default function HomeScreen({ navigation }) {
   const { user } = useAuth();
-  const { branchId } = useBranch();
+  const { branchId, canSwitch } = useBranch();
   const [d, setD] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [err, setErr] = useState('');
 
   const load = useCallback(() => {
-    api('/reports/dashboard', { params: { branch_id: branchId } }).then(setD).catch(() => {});
+    api('/reports/dashboard', { params: { branch_id: branchId } }).then(x => { setD(x); setErr(''); }).catch(e => setErr(e.message));
     api('/staff/notifications').then(x => setUnread(x.unread)).catch(() => {});
   }, [branchId]);
   useFocusEffect(load);
@@ -123,6 +126,13 @@ export default function HomeScreen({ navigation }) {
 
       <ConnectionCard />
 
+      {!!err && (
+        <View style={[{ backgroundColor: '#fde8e8', borderRadius: 12, padding: 12 }, shadow]}>
+          <Text style={{ color: colors.red, fontWeight: '700' }}>Couldn't load dashboard</Text>
+          <Text style={{ color: colors.red, fontSize: 12, marginTop: 2 }}>{err}</Text>
+        </View>
+      )}
+
       <BranchBar />
 
       {can(user, 'dashboard.view') && d && (
@@ -131,11 +141,11 @@ export default function HomeScreen({ navigation }) {
           <StatCard label="This month" value={fmt(d.month.total)} sub={`${d.month.bills} bills`} accent={colors.green} />
           <StatCard label="Est. profit (month)" value={fmt(d.month.profit)} sub={`${fmt(d.month_profit_net)} after expenses`} accent={colors.green} />
           <StatCard label="Stock value" value={fmt(d.stock_value.cost)} sub={`retail ${fmt(d.stock_value.retail)}`} accent={colors.brand} />
-          <StatCard label="Low stock" value={String(d.low_stock_count)} sub="items to reorder" accent={colors.orange} />
-          <StatCard label="Expiry risk 90d" value={fmt(d.expiry_risk.value)} sub={`${d.expiry_risk.batches} batches`} accent={colors.red} />
+          <StatCard label="Low stock" value={String(d.low_stock_count)} sub="items to reorder" accent={colors.orange} onPress={() => navigation.navigate('Expiry')} />
+          <StatCard label="Expiry risk 90d" value={fmt(d.expiry_risk.value)} sub={`${d.expiry_risk.batches} batches · ${d.expired.batches} already expired`} accent={colors.red} />
           <StatCard label="Expiring 30d" value={fmt(d.expiring_30.value)} sub={`${d.expiring_30.batches} batches`} accent={colors.red} />
           <StatCard label="Expiring 60d" value={fmt(d.expiring_60.value)} sub={`${d.expiring_60.batches} batches`} accent={colors.orange} />
-          <StatCard label="Expired stock" value={fmt(d.expired.value)} sub={`${d.expired.batches} batches`} accent={colors.red} />
+          <StatCard label="Expired stock" value={fmt(d.expired.value)} sub={`${d.expired.batches} batches`} accent={colors.red} onPress={() => navigation.navigate('Expiry')} />
           <StatCard label="Batch stock" value={String(d.batch_summary.batches)} sub={`${d.batch_summary.units} units · ${d.batch_summary.medicines} medicines`} accent={colors.brand} />
         </View>
       )}
@@ -157,6 +167,12 @@ export default function HomeScreen({ navigation }) {
 
       {d && can(user, 'dashboard.view') && (
         <>
+          {(d.trend || []).length > 0 && (
+            <Section title="Sales — last 14 days">
+              {d.trend.map(t => <Row key={t.date} l={t.date.slice(5)} r={`${fmt(t.total)} · ${t.bills} bills`} />)}
+            </Section>
+          )}
+
           <Section title="Payment collection (today)">
             <Row l="Cash" r={fmt(d.today.cash)} />
             <Row l="UPI" r={fmt(d.today.upi)} />
@@ -164,6 +180,13 @@ export default function HomeScreen({ navigation }) {
             <Row l="Credit (unpaid)" r={fmt(d.today.credit)} />
             <Row l="Customer dues" r={fmt(d.customer_dues)} red={d.customer_dues > 0} />
             <Row l="Supplier dues" r={fmt(d.supplier_dues)} red={d.supplier_dues > 0} />
+          </Section>
+
+          <Section title="Payment collection (this month)">
+            <Row l="Cash" r={fmt(d.month.cash)} />
+            <Row l="UPI" r={fmt(d.month.upi)} />
+            <Row l="Card" r={fmt(d.month.card)} />
+            <Row l="Credit (unpaid)" r={fmt(d.month.credit)} />
           </Section>
 
           {(d.monthly || []).length > 0 && (
@@ -174,13 +197,13 @@ export default function HomeScreen({ navigation }) {
             </Section>
           )}
 
-          {(d.branch_wise || []).length > 1 && (
+          {(canSwitch || can(user, 'dashboard.all_branches')) && (d.branch_wise || []).length > 1 && (
             <Section title="Branch-wise sales (this month)">
               {d.branch_wise.map(b => <Row key={b.code} l={`${b.code} · ${b.name}`} r={`${fmt(b.total)} · ${b.bills} bills`} />)}
             </Section>
           )}
 
-          {(d.stock_by_branch || []).length > 1 && (
+          {(canSwitch || can(user, 'dashboard.all_branches')) && (d.stock_by_branch || []).length > 1 && (
             <Section title="Stock value by branch">
               {d.stock_by_branch.map(b => <Row key={b.code} l={`${b.code} · ${b.name}`} r={fmt(b.value)} />)}
             </Section>

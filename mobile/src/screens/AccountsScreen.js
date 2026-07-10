@@ -50,9 +50,10 @@ function Stat({ label, value, sub, accent }) {
 }
 
 function CsvBtn({ name, columns, rows }) {
+  const disabled = !rows?.length;
   return (
-    <TouchableOpacity onPress={() => shareCsv(name, columns, rows)}
-      style={{ backgroundColor: colors.brandLight, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10 }}>
+    <TouchableOpacity onPress={() => shareCsv(name, columns, rows)} disabled={disabled}
+      style={{ backgroundColor: colors.brandLight, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, opacity: disabled ? 0.5 : 1 }}>
       <Text style={{ color: colors.brand, fontWeight: '700', fontSize: 12 }}>⬇ CSV</Text>
     </TouchableOpacity>
   );
@@ -63,7 +64,7 @@ export default function AccountsScreen() {
   const [tab, setTab] = useState('expenses');
   const tabs = [{ value: 'expenses', label: '🧾 Expenses' }];
   if (can(user, 'accounts.manage')) {
-    tabs.push({ value: 'closing', label: '💰 Cash Closing' }, { value: 'upi', label: '📲 UPI Recon' });
+    tabs.push({ value: 'closing', label: '💰 Daily Cash Closing' }, { value: 'upi', label: '📲 UPI Reconciliation' });
   }
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
@@ -95,7 +96,7 @@ function Expenses() {
   const del = e => Alert.alert('Delete expense?', `${e.category} ${fmt(e.amount)}`, [
     { text: 'Cancel', style: 'cancel' },
     { text: 'Delete', style: 'destructive', onPress: async () => {
-      try { await api(`/accounts/expenses/${e.id}`, { method: 'DELETE' }); load(); }
+      try { await api(`/accounts/expenses/${e.id}`, { method: 'DELETE' }); Alert.alert('Deleted'); load(); }
       catch (err) { Alert.alert('Error', err.message); }
     } },
   ]);
@@ -176,6 +177,7 @@ function ExpenseForm({ cats, branchId, options, canPick, onClose, onSaved }) {
     setBusy(true);
     try {
       await api('/accounts/expenses', { method: 'POST', body: { ...f, amount: Number(f.amount), branch_id: Number(f.branch_id) } });
+      Alert.alert('Expense saved');
       onSaved();
     } catch (e) { Alert.alert('Could not save', e.message); }
     setBusy(false);
@@ -189,7 +191,7 @@ function ExpenseForm({ cats, branchId, options, canPick, onClose, onSaved }) {
       )}
       <Chips label="Category" value={f.category} onChange={set('category')}
         options={(cats.length ? cats : ['Miscellaneous']).map(c => ({ value: c, label: c }))} />
-      <Field label="Amount *" keyboardType="numeric" value={String(f.amount)} onChangeText={set('amount')} />
+      <Field label="Amount *" keyboardType="decimal-pad" value={String(f.amount)} onChangeText={set('amount')} />
       <Field label="Date (YYYY-MM-DD)" autoCapitalize="none" value={f.date} onChangeText={set('date')} />
       <Chips label="Paid via" value={f.paid_method} onChange={set('paid_method')}
         options={[{ value: 'cash', label: 'Cash' }, { value: 'upi', label: 'UPI' }, { value: 'bank', label: 'Bank' }]} />
@@ -258,8 +260,8 @@ function CashClosing() {
           </View>
 
           <Card title={`Close the day — ${date}`}>
-            <Field label="Counted cash (actual) *" keyboardType="numeric" value={actual} onChangeText={setActual} />
-            <Field label="Bank deposit today" keyboardType="numeric" value={deposit} onChangeText={setDeposit} />
+            <Field label="Counted cash (actual) *" keyboardType="decimal-pad" value={actual} onChangeText={setActual} />
+            <Field label="Bank deposit today" keyboardType="decimal-pad" value={deposit} onChangeText={setDeposit} />
             <Field label="Notes" value={notes} onChangeText={setNotes} />
             {diff !== null && (
               <Text style={{ color: Math.abs(diff) > 0.01 ? colors.red : colors.green, fontWeight: '700', marginBottom: 8 }}>

@@ -9,6 +9,16 @@ const pad = n => String(n).padStart(2, '0');
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const monthStart = () => today().slice(0, 8) + '01';
 
+// Masks free-text input into YYYY-MM-DD as the user types, so mobile can't
+// send a malformed date param the way a plain TextInput would (web enforces
+// this via <input type="date">).
+const maskDate = v => {
+  const d = v.replace(/\D/g, '').slice(0, 8);
+  if (d.length <= 4) return d;
+  if (d.length <= 6) return `${d.slice(0, 4)}-${d.slice(4)}`;
+  return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+};
+
 const STATUS = [{ value: '', label: 'All' }, ...['completed', 'cancelled', 'returned', 'partial_return', 'held']
   .map(s => ({ value: s, label: s.replace('_', ' ') }))];
 const PAYMENT = [{ value: '', label: 'All' }, ...['cash', 'upi', 'card', 'credit']
@@ -85,6 +95,8 @@ export default function SalesScreen() {
     ]);
   };
 
+  // Hands off to the OS PDF viewer, which itself offers print (no in-app
+  // print dialog exists on native like window.print() does on web).
   const openPdf = id => Linking.openURL(`${BASE_URL}/api/sales/${id}/pdf?token=${getAuthToken()}`)
     .catch(e => Alert.alert('Error', e.message));
 
@@ -99,10 +111,10 @@ export default function SalesScreen() {
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
       <BranchBar />
       <View style={{ flexDirection: 'row', gap: 8 }}>
-        <View style={{ flex: 1 }}><Field label="From" placeholder="YYYY-MM-DD" value={filters.from}
-          onChangeText={v => setFilters(f => ({ ...f, from: v }))} /></View>
-        <View style={{ flex: 1 }}><Field label="To" placeholder="YYYY-MM-DD" value={filters.to}
-          onChangeText={v => setFilters(f => ({ ...f, to: v }))} /></View>
+        <View style={{ flex: 1 }}><Field label="From" placeholder="YYYY-MM-DD" value={filters.from} keyboardType="numeric" maxLength={10}
+          onChangeText={v => setFilters(f => ({ ...f, from: maskDate(v) }))} /></View>
+        <View style={{ flex: 1 }}><Field label="To" placeholder="YYYY-MM-DD" value={filters.to} keyboardType="numeric" maxLength={10}
+          onChangeText={v => setFilters(f => ({ ...f, to: maskDate(v) }))} /></View>
       </View>
       <Chips label="Status" value={filters.status} onChange={v => setFilters(f => ({ ...f, status: v }))} options={STATUS} />
       <Chips label="Payment" value={filters.payment} onChange={v => setFilters(f => ({ ...f, payment: v }))} options={PAYMENT} />
@@ -233,7 +245,7 @@ export default function SalesScreen() {
             {can(user, 'billing.cancel') && ['completed', 'held'].includes(view.status) && (
               <Btn title="Cancel bill" color={colors.red} onPress={() => cancel(view)} />
             )}
-            <Btn title="⬇ PDF" color={colors.green} onPress={() => openPdf(view.id)} />
+            <Btn title="⬇ View / Print PDF" color={colors.green} onPress={() => openPdf(view.id)} />
             <Btn title="Close" color={colors.ink3} onPress={() => setView(null)} />
           </ScrollView>
         )}
@@ -290,7 +302,7 @@ function ReturnForm({ sale, onClose, onDone }) {
       <Field label="Reason" value={reason} onChangeText={setReason} placeholder="e.g. wrong medicine, adverse reaction" />
       <Chips label="Refund method" value={method} onChange={setMethod} options={[
         { value: 'cash', label: 'Cash refund' }, { value: 'upi', label: 'UPI refund' },
-        { value: 'credit_note', label: 'Credit note' },
+        { value: 'credit_note', label: 'Credit note (adjust customer credit)' },
       ]} />
       <Text style={{ fontWeight: '800', marginBottom: 8 }}>Refund: {fmt(refund)}</Text>
       <Btn title={busy ? 'Saving…' : 'Confirm Return'} color={colors.orange} onPress={submit} disabled={busy} />

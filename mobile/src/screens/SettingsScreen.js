@@ -40,6 +40,12 @@ export default function SettingsScreen() {
 }
 
 // ---------------- My Account ----------------
+const LOGIN_HISTORY_CSV_COLS = [
+  { key: 'created_at', label: 'Time' }, { key: 'user_name', label: 'User' },
+  { key: 'email', label: 'Email' }, { key: 'device', label: 'Device' },
+  { key: 'ip', label: 'IP' }, { key: 'success', label: 'Success' },
+];
+
 function MyAccount() {
   const { user } = useAuth();
   const [pw, setPw] = useState({ current_password: '', new_password: '' });
@@ -101,6 +107,7 @@ function MyAccount() {
       </Card>
 
       <Card title={isAdmin ? 'Login history (all users)' : 'My login history'}>
+        <Btn title="⇪ Export CSV" onPress={() => shareCsv('login-history.csv', LOGIN_HISTORY_CSV_COLS, history)} />
         {history.map(r => (
           <View key={r.id} style={{ paddingVertical: 7, borderTopWidth: 1, borderColor: colors.line }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -176,6 +183,7 @@ function Company() {
 }
 
 function FreshStart() {
+  const { logout } = useAuth();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
@@ -188,8 +196,10 @@ function FreshStart() {
         setBusy(true);
         try {
           const r = await api('/admin/factory-reset', { method: 'POST', body: { password, confirm } });
-          Alert.alert('Done', r.message);
           setPassword(''); setConfirm('');
+          // Mirrors web's window.location.assign('/') full reload: sign out so every
+          // screen's cached state (branch lists, user lists, dropdowns) refetches fresh on next login.
+          Alert.alert('Done', r.message, [{ text: 'OK', onPress: () => logout() }]);
         } catch (e) { Alert.alert('Error', e.message); }
         setBusy(false);
       } },

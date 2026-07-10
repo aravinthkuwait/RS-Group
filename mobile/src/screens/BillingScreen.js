@@ -6,9 +6,6 @@ import { useAuth, useBranch, can } from '../../App';
 import { colors, shadow } from '../theme';
 import { Field, Chips, Btn, BranchBar } from '../ui';
 
-// A phone number vs a typed name — used to decide how to treat the customer box.
-const looksLikePhone = s => /^[+\d][\d\s-]{4,}$/.test((s || '').trim());
-
 export default function BillingScreen() {
   const { user } = useAuth();
   const { branchId, options } = useBranch();
@@ -19,6 +16,7 @@ export default function BillingScreen() {
   const [results, setResults] = useState([]);
   const [cart, setCart] = useState([]); // {batch_id, medicine_id, name, batch_no, mrp, price, gst_rate, qty, stock, category, disc}
   const [phone, setPhone] = useState('');
+  const [custName, setCustName] = useState(''); // walk-in name, plain field — no permission gate (mirrors web POS)
   const [custResults, setCustResults] = useState([]); // live customer suggestions
   const [customer, setCustomer] = useState(null); // selected profile (special discount)
   const [doctor, setDoctor] = useState('');
@@ -78,19 +76,17 @@ export default function BillingScreen() {
   }, [phone, customer]);
 
   const pickCustomer = c => {
-    setCustomer(c); setPhone(c.phone); setCustResults([]);
+    setCustomer(c); setPhone(c.phone); setCustName(c.name || ''); setCustResults([]);
   };
   const clearCustomer = () => {
-    setCustomer(null); setPhone('');
+    setCustomer(null); setPhone(''); setCustName('');
     if (discType === 'customer') setDiscType('none');
   };
 
-  // Open the add-customer form, prefilling whatever is typed (name or phone)
+  // Open the add-customer form, prefilling whatever is already typed
   const openNewCustomer = () => {
-    const term = phone.trim();
-    const isPhone = looksLikePhone(term);
     setNewCust({
-      name: isPhone ? '' : term, phone: isPhone ? term : '',
+      name: custName.trim(), phone: phone.trim(),
       address: '', customer_type: 'individual', gstin: '', discount_percent: '',
     });
     setCustResults([]);
@@ -149,7 +145,14 @@ export default function BillingScreen() {
   const takeRxPhoto = async () => {
     try {
       const photo = await camRef.current?.takePictureAsync({ base64: true, quality: 0.4 });
-      if (photo?.base64) setRx(`data:image/jpeg;base64,${photo.base64}`);
+      if (photo?.base64) {
+        // base64 chars ≈ 4/3 of raw bytes — same ~1.4MB cap as web POS.jsx onRx
+        if (photo.base64.length * 0.75 > 1_400_000) {
+          Alert.alert('Photo too large', 'Prescription photo is too large (max 1.4MB). Try again with a tighter shot.');
+        } else {
+          setRx(`data:image/jpeg;base64,${photo.base64}`);
+        }
+      }
     } catch (e) { Alert.alert('Could not capture photo', e.message); }
     setCapturingRx(false);
   };
@@ -207,26 +210,15 @@ export default function BillingScreen() {
     : selectedPromo ? `Offer: ${selectedPromo.name}` : 'Offer';
 
   const resetForm = () => {
-    setCart([]); setPhone(''); setCustomer(null); setDoctor(''); setRx(null);
+    setCart([]); setPhone(''); setCustName(''); setCustomer(null); setDoctor(''); setRx(null);
     setDiscType('none'); setDiscValue(''); setPromoId(null); setApproval(null);
     setPay({ mode: 'cash', cash: '', upi: '', card: '', credit: '' }); setSplit(false);
     setResumeId(null);
   };
 
-  const submit = async (hold = false, approvalCreds = null, walkIn = false) => {
+  const submit = async (hold = false, approvalCreds = null) => {
     if (!cart.length) return Alert.alert('Cart is empty');
     if (!hold && Math.abs(paySum - total) > 0.01) return Alert.alert('Payment mismatch', `Payment ₹${paySum} must equal total ₹${total}`);
-    const typed = phone.trim();
-    // If a NAME was typed but no customer is attached, offer to save it for
-    // reuse instead of losing it (a raw name can't be stored as a phone).
-    if (!approvalCreds && !walkIn && !customer && typed && !looksLikePhone(typed)) {
-      return Alert.alert('Save this customer?',
-        `"${typed}" looks like a name. Add it as a customer so it's stored for next time, or bill as a walk-in.`,
-        [
-          { text: 'Add customer', onPress: openNewCustomer },
-          { text: 'Bill as walk-in', style: 'cancel', onPress: () => submit(hold, null, true) },
-        ]);
-    }
     setBusy(true);
     try {
       const d = await api('/sales', {
@@ -235,8 +227,8 @@ export default function BillingScreen() {
           branch_id: activeBranch || undefined,
           items: cart.map(i => ({ batch_id: i.batch_id, qty: i.qty, discount: Number(i.disc) || 0 })),
           customer_id: customer?.id || undefined,
-          // Only send a phone when it really is one — never store a name as a phone
-          customer_phone: customer ? undefined : (looksLikePhone(typed) ? typed : undefined),
+          customer_phone: phone.trim() || undefined,
+          customer_name: custName.trim() || undefined,
           discount: { type: (discType === 'promo' && !promoId) ? 'none' : (totalDiscount > 0 || discType !== 'none' ? discType : 'none'), value: Number(discValue) || 0, promo_id: promoId },
           doctor_name: doctor,
           payment: { cash: Number(pay.cash) || 0, upi: Number(pay.upi) || 0, card: Number(pay.card) || 0, credit: Number(pay.credit) || 0 },
@@ -364,8 +356,11 @@ export default function BillingScreen() {
 
       <View style={[{ backgroundColor: '#fff', borderRadius: 12, padding: 12 }, shadow]}>
         <TextInput style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 8, padding: 10, marginBottom: 6 }}
-          placeholder="Customer mobile or name (optional)" value={phone}
+          placeholder="Customer mobile number (optional)" value={phone} keyboardType="phone-pad"
           onChangeText={v => { setPhone(v); if (customer) setCustomer(null); }} />
+        <TextInput style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 8, padding: 10, marginBottom: 6 }}
+          placeholder="Customer name (optional)" value={custName}
+          onChangeText={v => { setCustName(v); if (customer) setCustomer(null); }} />
         {custResults.length > 0 && (
           <View style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 8, marginBottom: 6, maxHeight: 160 }}>
             <ScrollView>
@@ -409,13 +404,17 @@ export default function BillingScreen() {
           </TouchableOpacity>
         )}
 
-        {canDiscount && (
+        {canDiscount ? (
           <TouchableOpacity onPress={() => setDiscOpen(true)}
             style={{ borderWidth: 1, borderColor: billDisc > 0 ? colors.green : colors.line, borderRadius: 8, padding: 10, marginBottom: 8, backgroundColor: billDisc > 0 ? colors.greenLight : '#fff' }}>
             <Text style={{ fontWeight: '700', color: billDisc > 0 ? colors.green : colors.ink2 }}>
               💸 {discLabel}{billDisc > 0 ? ` · saves ${fmt(billDisc)}` : ' — tap to add bill discount'}
             </Text>
           </TouchableOpacity>
+        ) : (
+          <View style={{ borderWidth: 1, borderColor: colors.line, borderRadius: 8, padding: 10, marginBottom: 8, opacity: 0.6 }}>
+            <Text style={{ fontWeight: '700', color: colors.ink3 }}>💸 Discount (not permitted)</Text>
+          </View>
         )}
         {itemDisc > 0 && (
           <Text style={{ color: colors.ink3, fontSize: 12, marginBottom: 4 }}>Item-wise discounts: {fmt(itemDisc)}</Text>
@@ -620,10 +619,15 @@ function BillDoneModal({ sale, onClose }) {
         <View style={[{ backgroundColor: '#fff', borderRadius: 14, padding: 18, maxHeight: '85%' }, shadow]}>
           <Text style={{ textAlign: 'center', fontSize: 36 }}>✅</Text>
           <Text style={{ textAlign: 'center', fontWeight: '800', fontSize: 12, color: colors.ink3, marginTop: 4 }}>{sale.invoice_no}</Text>
-          <Text style={{ textAlign: 'center', fontWeight: '800', fontSize: 26, marginBottom: 6 }}>{fmt(sale.total)}</Text>
+          <Text style={{ textAlign: 'center', fontWeight: '800', fontSize: 26, marginBottom: 2 }}>{fmt(sale.total)}</Text>
+          <Text style={{ textAlign: 'center', marginBottom: 6 }}>
+            <Text style={{ backgroundColor: colors.brandLight, color: colors.brand, fontWeight: '700', fontSize: 11, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20, overflow: 'hidden' }}>
+              {sale.status}
+            </Text>
+          </Text>
           {saved > 0 && (
             <Text style={{ textAlign: 'center', color: colors.orange, fontWeight: '700', marginBottom: 6 }}>
-              🎉 You saved {fmt(saved)} on this bill!
+              🎉 You saved {fmt(saved)} on this purchase!
               {sale.discount_approved_by_name ? ` (approved by ${sale.discount_approved_by_name})` : ''}
             </Text>
           )}
@@ -643,8 +647,11 @@ function BillDoneModal({ sale, onClose }) {
             <TouchableOpacity onPress={wa} style={{ flex: 1, backgroundColor: colors.orange, borderRadius: 10, padding: 12 }}>
               <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>📱 WhatsApp</Text>
             </TouchableOpacity>
+            <TouchableOpacity onPress={() => Linking.openURL(pdfUrl)} style={{ flex: 1, backgroundColor: colors.green, borderRadius: 10, padding: 12 }}>
+              <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>⬇ PDF Bill</Text>
+            </TouchableOpacity>
             <TouchableOpacity onPress={() => Linking.openURL(pdfUrl)} style={{ flex: 1, backgroundColor: colors.brand, borderRadius: 10, padding: 12 }}>
-              <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>🖨 Print / PDF</Text>
+              <Text style={{ color: '#fff', textAlign: 'center', fontWeight: '700' }}>🖨 Print Receipt</Text>
             </TouchableOpacity>
           </View>
           <Btn title="New Bill" color={colors.ink3} onPress={onClose} />

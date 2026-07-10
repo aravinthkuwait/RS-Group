@@ -92,7 +92,7 @@ export default function CustomersScreen() {
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
       <BranchBar />
       <Chips value={tab} onChange={setTab} options={[
-        { value: 'all', label: `👥 Customers (${rows.length})` },
+        { value: 'all', label: `👥 All Customers (${rows.length})` },
         { value: 'dues', label: `💳 Credit Dues (${dues.dues.length})` },
       ]} />
 
@@ -126,6 +126,7 @@ export default function CustomersScreen() {
                 <Text style={{ color: colors.ink3, fontSize: 12 }}>
                   Last purchase: {item.last_purchase ? String(item.last_purchase).slice(0, 10) : '—'}
                 </Text>
+                {!!item.branch_name && <Text style={{ color: colors.ink3, fontSize: 12 }}>Branch: {item.branch_name}</Text>}
                 {!!item.gstin && <Text style={{ color: colors.ink3, fontSize: 12 }}>GST: {item.gstin}</Text>}
                 {item.credit_balance > 0 && (
                   <Text style={{ color: colors.red, fontWeight: '700', fontSize: 12, marginTop: 2 }}>Credit due: {fmt(item.credit_balance)}</Text>
@@ -185,13 +186,17 @@ export default function CustomersScreen() {
             <Field label="Full name *" value={edit.name} onChangeText={v => setEdit(e => ({ ...e, name: v }))} />
             <Field label="Mobile number *" keyboardType="phone-pad" value={edit.phone} onChangeText={v => setEdit(e => ({ ...e, phone: v }))} />
             <Chips label="Customer type" value={edit.customer_type} onChange={v => setEdit(e => ({ ...e, customer_type: v }))}
-              options={[{ value: 'individual', label: 'Individual' }, { value: 'business', label: 'Business (GST)' }]} />
+              options={[{ value: 'individual', label: 'Individual' }, { value: 'business', label: 'Business' }]} />
             <Field label="GST number (business, optional)" autoCapitalize="characters" value={edit.gstin} onChangeText={v => setEdit(e => ({ ...e, gstin: v }))} />
             <Field label="Email" autoCapitalize="none" keyboardType="email-address" value={edit.email} onChangeText={v => setEdit(e => ({ ...e, email: v }))} />
             <Field label="Date of birth (YYYY-MM-DD)" placeholder="1990-01-31" value={edit.dob} onChangeText={v => setEdit(e => ({ ...e, dob: v }))} />
             <Field label="Credit limit (₹)" keyboardType="numeric" value={String(edit.credit_limit)} onChangeText={v => setEdit(e => ({ ...e, credit_limit: v }))} />
             <Field label="Special discount % (auto-offered at billing)" keyboardType="numeric"
-              value={String(edit.discount_percent)} onChangeText={v => setEdit(e => ({ ...e, discount_percent: v }))} />
+              value={String(edit.discount_percent)} onChangeText={v => {
+                const n = Number(v);
+                if (v !== '' && (Number.isNaN(n) || n < 0 || n > 100)) return;
+                setEdit(e => ({ ...e, discount_percent: v }));
+              }} />
             <Field label="Address" value={edit.address} onChangeText={v => setEdit(e => ({ ...e, address: v }))} />
             <Field label="Notes" value={edit.notes} onChangeText={v => setEdit(e => ({ ...e, notes: v }))} />
             <Btn title={busy ? 'Saving…' : '💾 Save Customer'} color={colors.green} onPress={save} disabled={busy} />
@@ -209,7 +214,7 @@ export default function CustomersScreen() {
               <Text style={{ color: colors.ink3, marginBottom: 10 }}>Credit due: {fmt(paying.credit_balance)}</Text>
               <Field label="Amount *" keyboardType="numeric" value={payAmount} onChangeText={setPayAmount} />
               <Chips label="Method" value={payMethod} onChange={setPayMethod}
-                options={['cash', 'upi', 'card'].map(m => ({ value: m, label: m.toUpperCase() }))} />
+                options={[{ value: 'cash', label: 'Cash' }, { value: 'upi', label: 'UPI' }, { value: 'card', label: 'Card' }]} />
               <Btn title={busy ? 'Saving…' : '💾 Save'} color={colors.green} onPress={receive} disabled={busy || !Number(payAmount)} />
               <Btn title="Cancel" color={colors.ink3} onPress={() => setPaying(null)} />
             </View>

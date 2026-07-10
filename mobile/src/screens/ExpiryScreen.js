@@ -78,9 +78,9 @@ export default function ExpiryScreen() {
       <BranchBar />
       <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-          <Stat accent={colors.red} label="Expired" value={d.expired.length} sub={fmt(stuck) + ' stuck'} />
-          <Stat accent={colors.orange} label="Expiring ≤30d" value={d.expiring_30.length} />
-          <Stat accent={colors.orange} label="Expiring ≤90d" value={d.expiring_90.length} />
+          <Stat accent={colors.red} label="Expired batches" value={d.expired.length} sub={fmt(stuck) + ' stuck'} />
+          <Stat accent={colors.orange} label="Expiring ≤ 30 days" value={d.expiring_30.length} />
+          <Stat accent={colors.orange} label="Expiring ≤ 90 days" value={d.expiring_90.length} />
           <Stat accent={colors.red} label="Out of stock" value={d.out_of_stock.length} />
           <Stat accent={colors.orange} label="Low stock" value={d.low_stock.length} />
         </View>
@@ -88,8 +88,8 @@ export default function ExpiryScreen() {
         <Chips value={tab} onChange={setTab} options={[
           { value: 'expiring', label: `⏳ Expiring (${d.expiring_90.length})` },
           { value: 'expired', label: `❌ Expired (${d.expired.length})` },
-          { value: 'low', label: `📉 Low / Out (${d.low_stock.length + d.out_of_stock.length})` },
-          { value: 'movers', label: '🚀 Movers' },
+          { value: 'low', label: `📉 Low / Out of stock (${d.low_stock.length + d.out_of_stock.length})` },
+          { value: 'movers', label: '🚀 Fast & Slow movers' },
           { value: 'discount', label: `🏷 Discounts (${d.discount_suggestions.length})` },
         ]} />
 

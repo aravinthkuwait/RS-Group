@@ -431,6 +431,7 @@ function PaySupplierModal({ s, onClose, onDone }) {
   const [method, setMethod] = useState('bank');
   const [refNo, setRefNo] = useState('');
   const save = async () => {
+    if (!Number(amount) || Number(amount) <= 0) return toast('Enter a valid amount', 'red');
     try {
       await api(`/purchases/suppliers/${s.id}/payments`, { method: 'POST', body: { amount: Number(amount), method, ref_no: refNo } });
       toast('Payment recorded', 'green'); onDone();

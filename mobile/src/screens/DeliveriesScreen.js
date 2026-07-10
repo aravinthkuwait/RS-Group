@@ -19,6 +19,7 @@ export default function DeliveriesScreen() {
   const update = async (item, status) => {
     try {
       await api(`/sales/${item.id}/delivery`, { method: 'POST', body: { status } });
+      Alert.alert('Updated', `Delivery marked ${status.replace(/_/g, ' ')}`);
       load();
     } catch (e) { Alert.alert('Error', e.message); }
   };
@@ -26,7 +27,8 @@ export default function DeliveriesScreen() {
   const exportCsv = () => shareCsv('deliveries.csv', [
     { key: 'invoice_no', label: 'Invoice' }, { key: 'customer_name', label: 'Customer' },
     { key: 'customer_phone', label: 'Phone' }, { key: 'delivery_address', label: 'Address' },
-    { key: 'total', label: 'Amount' }, { key: 'delivery_status', label: 'Status' },
+    { key: 'total', label: 'Amount' }, { key: 'delivery_staff_name', label: 'Rider' },
+    { key: 'delivery_status', label: 'Status' },
   ], rows);
 
   return (
@@ -47,6 +49,7 @@ export default function DeliveriesScreen() {
               {item.customer_name} · {item.customer_phone}
             </Text>
             <Text style={{ color: colors.ink3, fontSize: 12 }}>{item.delivery_address}</Text>
+            {!!item.delivery_staff_name && <Text style={{ color: colors.ink3, fontSize: 12 }}>Rider: {item.delivery_staff_name}</Text>}
             <Text style={{ color: colors.orange, fontWeight: '700', fontSize: 12, marginVertical: 4 }}>
               {String(item.delivery_status).replace(/_/g, ' ').toUpperCase()}
             </Text>

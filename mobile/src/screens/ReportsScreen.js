@@ -9,20 +9,54 @@ import { Field, Chips, Btn, BranchBar } from '../ui';
 
 const cell = { paddingVertical: 6, paddingHorizontal: 8, fontSize: 12, color: colors.ink2 };
 
+const pad = n => String(n).padStart(2, '0');
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const monthStart = () => today().slice(0, 8) + '01';
+
+// Masks free-text input into YYYY-MM-DD as the user types (web enforces this
+// via <input type="date">; mirrors SalesScreen.js's maskDate).
+const maskDate = v => {
+  const d = v.replace(/\D/g, '').slice(0, 8);
+  if (d.length <= 4) return d;
+  if (d.length <= 6) return `${d.slice(0, 4)}-${d.slice(4)}`;
+  return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+};
+
+// Same tab keys/labels/order as web's REPORT_TABS (web/src/pages/Reports.jsx)
+// so the same report reads identically on both clients.
+const REPORT_TABS = [
+  { key: 'sales', label: 'Daily / Monthly Sales' },
+  { key: 'products', label: 'Product-wise Sales' },
+  { key: 'staff', label: 'Staff Sales' },
+  { key: 'discounts', label: 'Discounts' },
+  { key: 'stock', label: 'Stock (Batch-wise)' },
+  { key: 'brands', label: 'Brand-wise Stock' },
+  { key: 'generics', label: 'Generic-wise Stock' },
+  { key: 'lowstock', label: 'Low Stock' },
+  { key: 'expiry', label: 'Expiry' },
+  { key: 'purchases', label: 'Purchases' },
+  { key: 'gst', label: 'GST / Tax' },
+  { key: 'profit', label: 'Profit & Loss' },
+];
+
+// Same group labels as web's DISCOUNT_GROUPS.
+const DISCOUNT_GROUPS = [
+  { key: 'bill', label: 'Bill-wise' },
+  { key: 'branch', label: 'Branch-wise' },
+  { key: 'user', label: 'User-wise' },
+  { key: 'customer', label: 'Customer-wise' },
+  { key: 'product', label: 'Product-wise' },
+];
+
 export default function ReportsScreen() {
   const { user } = useAuth();
   const { branchId } = useBranch();
-  const [list, setList] = useState([]);
   const [key, setKey] = useState('sales');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [from, setFrom] = useState(monthStart());
+  const [to, setTo] = useState(today());
   const [group, setGroup] = useState('bill'); // discounts report grouping
-
-  useFocusEffect(useCallback(() => {
-    api('/reports/list').then(d => setList(d.reports)).catch(() => {});
-  }, []));
 
   useFocusEffect(useCallback(() => {
     setLoading(true);
@@ -39,15 +73,17 @@ export default function ReportsScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface, padding: 12 }}>
       <BranchBar />
-      <Chips options={list.map(r => ({ value: r.key, label: r.title.replace(/ Report$/, '') }))}
+      <Chips options={REPORT_TABS.map(t => ({ value: t.key, label: t.label }))}
         value={key} onChange={setKey} />
       <View style={{ flexDirection: 'row', gap: 8 }}>
-        <View style={{ flex: 1 }}><Field label="From" placeholder="YYYY-MM-DD" value={from} onChangeText={setFrom} /></View>
-        <View style={{ flex: 1 }}><Field label="To" placeholder="YYYY-MM-DD" value={to} onChangeText={setTo} /></View>
+        <View style={{ flex: 1 }}><Field label="From" placeholder="YYYY-MM-DD" keyboardType="numeric" maxLength={10}
+          value={from} onChangeText={v => setFrom(maskDate(v))} /></View>
+        <View style={{ flex: 1 }}><Field label="To" placeholder="YYYY-MM-DD" keyboardType="numeric" maxLength={10}
+          value={to} onChangeText={v => setTo(maskDate(v))} /></View>
       </View>
       {key === 'discounts' && (
         <Chips label="Group by" value={group} onChange={setGroup}
-          options={['bill', 'branch', 'user', 'customer', 'product'].map(g => ({ value: g, label: g }))} />
+          options={DISCOUNT_GROUPS.map(g => ({ value: g.key, label: g.label }))} />
       )}
       {key !== 'profit' && can(user, 'reports.export') && (
         <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -108,7 +144,7 @@ export default function ReportsScreen() {
                       {data.columns.map(c => (
                         <Text key={c.key} style={[cell, { fontWeight: '800', color: colors.brand, minWidth: 90 }]}>{c.label}</Text>
                       ))}
-                      {showBillCol && <Text style={[cell, { fontWeight: '800', color: colors.brand, minWidth: 90 }]}>Bill</Text>}
+                      {showBillCol && <Text style={[cell, { fontWeight: '800', color: colors.brand, minWidth: 130 }]}>Bill</Text>}
                     </View>
                     {data.rows.map((r, i) => (
                       <View key={i} style={{ flexDirection: 'row', borderTopWidth: 1, borderColor: colors.line }}>
@@ -118,13 +154,20 @@ export default function ReportsScreen() {
                           </Text>
                         ))}
                         {showBillCol && (
-                          <TouchableOpacity onPress={() => viewPdf(r.sale_id)} style={[cell, { minWidth: 90, justifyContent: 'center' }]}>
-                            <Text style={{ color: colors.brand, fontWeight: '700', fontSize: 12 }}>👁 View / Print</Text>
-                          </TouchableOpacity>
+                          <View style={[cell, { minWidth: 130, flexDirection: 'row', gap: 12, alignItems: 'center' }]}>
+                            {/* Two separate actions (both open the PDF — RN has no window.print()
+                                equivalent) to match web's distinct View/Print buttons. */}
+                            <TouchableOpacity onPress={() => viewPdf(r.sale_id)}>
+                              <Text style={{ color: colors.brand, fontWeight: '700', fontSize: 12 }}>👁 View</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => viewPdf(r.sale_id)}>
+                              <Text style={{ color: colors.brand, fontWeight: '700', fontSize: 12 }}>🖨 Print</Text>
+                            </TouchableOpacity>
+                          </View>
                         )}
                       </View>
                     ))}
-                    {data.rows.length === 0 && <Text style={[cell, { padding: 16 }]}>No data for this period</Text>}
+                    {data.rows.length === 0 && <Text style={[cell, { padding: 16 }]}>No records found</Text>}
                   </View>
                 </ScrollView>
               </ScrollView>

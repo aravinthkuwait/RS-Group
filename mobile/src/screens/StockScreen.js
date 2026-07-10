@@ -159,7 +159,7 @@ function AdjustForm({ batch, onClose, onSaved }) {
       </Text>
       <Chips label="Type" value={type} onChange={setType} options={[
         { value: 'adjustment', label: 'Correction (+/-)' },
-        { value: 'damage', label: 'Damaged (-)' },
+        { value: 'damage', label: 'Damaged stock (-)' },
         { value: 'expiry_writeoff', label: 'Expiry write-off (-)' },
       ]} />
       <Text style={{ fontSize: 12, fontWeight: '700', color: colors.ink2, marginBottom: 4 }}>

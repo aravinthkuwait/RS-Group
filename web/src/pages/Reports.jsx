@@ -117,7 +117,7 @@ export default function Reports() {
           />
         </Card>
       )}
-      {key !== 'profit' && !data && <div className="empty">Building report…</div>}
+      {((key === 'profit' && !profit) || (key !== 'profit' && !data)) && <div className="empty">Building report…</div>}
     </div>
   );
 }

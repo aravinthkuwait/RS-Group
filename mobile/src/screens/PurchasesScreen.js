@@ -8,6 +8,16 @@ import { colors, shadow } from '../theme';
 
 const card = [{ backgroundColor: '#fff', borderRadius: 10, padding: 12, marginBottom: 8 }, shadow];
 
+const statusColor = s => ({ received: colors.green, pending: colors.orange, returned: colors.red }[s] || colors.ink3);
+
+function StatusBadge({ status }) {
+  return (
+    <View style={{ backgroundColor: statusColor(status) + '22', borderRadius: 10, paddingVertical: 2, paddingHorizontal: 8, alignSelf: 'flex-start' }}>
+      <Text style={{ color: statusColor(status), fontWeight: '700', fontSize: 11 }}>{String(status).replace('_', ' ')}</Text>
+    </View>
+  );
+}
+
 function CsvBtn({ filename, columns, rows }) {
   return (
     <TouchableOpacity onPress={() => shareCsv(filename, columns, rows)}
@@ -91,10 +101,11 @@ function InvoicesTab({ navigation, activeBranch }) {
               <Text style={{ fontWeight: '800', color: colors.green }}>{fmt(item.total)}</Text>
             </View>
             <Text style={{ color: colors.ink2, fontSize: 13, marginTop: 2 }}>{item.supplier_name}</Text>
-            <Text style={{ color: colors.ink3, fontSize: 12 }}>
-              {item.invoice_date} · {item.branch_name} · {item.status}
-              {item.pending_amount > 0.01 ? ` · due ${fmt(item.pending_amount)}` : ' · paid'}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+              <Text style={{ color: colors.ink3, fontSize: 12 }}>{item.invoice_date} · {item.branch_name}</Text>
+              <StatusBadge status={item.status} />
+              <Text style={{ color: colors.ink3, fontSize: 12 }}>{item.pending_amount > 0.01 ? `due ${fmt(item.pending_amount)}` : 'paid'}</Text>
+            </View>
             {can(user, 'purchases.manage') && item.status !== 'returned' && (
               <TouchableOpacity onPress={() => del(item)} style={{ marginTop: 6 }}>
                 <Text style={{ color: colors.red, fontWeight: '700', fontSize: 12 }}>🗑 Delete (reverse stock)</Text>

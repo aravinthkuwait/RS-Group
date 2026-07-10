@@ -40,6 +40,7 @@ export default function TasksScreen() {
         due_date: form.due_date || null,
         branch_id: form.branch_id ? Number(form.branch_id) : null,
       } });
+      Alert.alert('Created', 'Task created');
       setForm(null); load();
     } catch (e) { Alert.alert('Could not create', e.message); }
     setBusy(false);

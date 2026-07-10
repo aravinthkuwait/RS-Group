@@ -27,22 +27,24 @@ export default function AdminUsersScreen() {
     if (!edit.name || (!edit.id && (!edit.email || !edit.password))) {
       return Alert.alert('Missing details', 'Name, email and password are required for a new user.');
     }
+    const pct = edit.max_discount_percent === '' ? null : Math.min(100, Math.max(0, Number(edit.max_discount_percent)));
     setBusy(true);
     try {
       if (edit.id) {
         await api(`/admin/users/${edit.id}`, { method: 'PUT', body: {
           name: edit.name, phone: edit.phone, role: edit.role, branch_id: edit.branch_id,
           active: edit.active, extra_branches: edit.extra_branches,
-          max_discount_percent: edit.max_discount_percent === '' ? null : Number(edit.max_discount_percent),
+          max_discount_percent: pct,
           ...(edit.password ? { password: edit.password } : {}),
         } });
       } else {
         await api('/admin/users', { method: 'POST', body: {
           name: edit.name, email: edit.email, phone: edit.phone, password: edit.password,
           role: edit.role, branch_id: edit.branch_id, extra_branches: edit.extra_branches,
-          max_discount_percent: edit.max_discount_percent === '' ? null : Number(edit.max_discount_percent),
+          max_discount_percent: pct,
         } });
       }
+      Alert.alert('Saved', 'User saved');
       setEdit(null); load();
     } catch (e) { Alert.alert('Could not save', e.message); }
     setBusy(false);
@@ -53,7 +55,7 @@ export default function AdminUsersScreen() {
     { text: 'Delete', style: 'destructive', onPress: async () => {
       try {
         const d = await api(`/admin/users/${edit.id}`, { method: 'DELETE' });
-        if (d.message) Alert.alert('Done', d.message);
+        Alert.alert('Done', d.message || 'User deleted');
         setEdit(null); load();
       } catch (e) { Alert.alert('Could not delete', e.message); }
     } },
@@ -110,11 +112,16 @@ export default function AdminUsersScreen() {
               value={edit.password} onChangeText={v => setEdit(e => ({ ...e, password: v }))} />
             <Chips label="Role" value={edit.role} onChange={v => setEdit(e => ({ ...e, role: v }))}
               options={roles.filter(r => isOwner || r !== 'super_admin').map(r => ({ value: r, label: r.replace(/_/g, ' ') }))} />
-            {isOwner && (
+            {isOwner ? (
               <Chips label="Primary branch" value={edit.branch_id} onChange={v => setEdit(e => ({ ...e, branch_id: v, extra_branches: e.extra_branches.filter(b => b !== v) }))}
                 options={branches.map(b => ({ value: b.id, label: b.name }))} />
+            ) : (
+              <View style={{ marginBottom: 10 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.ink2, marginBottom: 4 }}>Primary branch</Text>
+                <Text style={{ color: colors.ink3 }}>{branches.find(b => b.id === edit.branch_id)?.name || 'All branches'}</Text>
+              </View>
             )}
-            {isOwner && !['super_admin', 'auditor'].includes(edit.role) && (
+            {isOwner && edit.branch_id && !['super_admin', 'auditor'].includes(edit.role) && (
               <Chips label="Also works at (multi-branch access)" multi
                 value={edit.extra_branches} onChange={v => setEdit(e => ({ ...e, extra_branches: v }))}
                 options={branches.filter(b => b.id !== Number(edit.branch_id)).map(b => ({ value: b.id, label: b.name }))} />

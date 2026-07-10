@@ -173,7 +173,7 @@ function Stock() {
             ),
           },
           { key: 'rack_location', label: 'Rack' },
-          { key: 'qty', label: 'Qty', num: true, render: r => <b>{r.qty}</b> },
+          { key: 'qty', label: 'Qty', num: true, render: r => <Badge color={r.qty <= r.min_stock ? 'orange' : 'green'}>{r.qty}</Badge> },
           { key: 'damaged_qty', label: 'Damaged', num: true, render: r => r.damaged_qty || '' },
           { key: 'mrp', label: 'MRP', num: true, render: r => fmt(r.mrp) },
           { key: 'selling_price', label: 'Selling', num: true, render: r => fmt(r.selling_price) },
@@ -199,6 +199,7 @@ function Adjustments() {
     <Card>
       <div className="toolbar">
         <div className="spacer" />
+        <span className="muted">{rows.length} adjustments</span>
         <ExportBtn name="stock-adjustments" rows={rows} columns={[
           { key: 'created_at', label: 'Date' }, { key: 'medicine_name', label: 'Medicine' },
           { key: 'batch_no', label: 'Batch' }, { key: 'branch_name', label: 'Branch' },
