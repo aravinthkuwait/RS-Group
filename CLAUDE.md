@@ -72,3 +72,8 @@ one-command setup for the other engines is in `docs/SKILLS-SETUP.md`.
 - Postgres `ROUND(x, 2)` needs `::numeric` cast on float expressions.
 - Seed deletes must respect FK order; identity sequences reset via
   `TRUNCATE ... RESTART IDENTITY CASCADE`.
+
+## Quality Skills (Hermes — always-on)
+
+- **requesting-code-review**: Security scan + quality gates before every commit.
+- **systematic-debugging**: Root-cause debugging — understand before fixing, no shotgun patches.
